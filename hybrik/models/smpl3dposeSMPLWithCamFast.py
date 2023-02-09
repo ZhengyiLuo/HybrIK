@@ -29,10 +29,10 @@ def norm_heatmap(norm_type, heatmap):
 
 
 @SPPE.register_module
-class Simple3DPoseBaseSMPLCam(nn.Module):
+class Simple3DPoseBaseSMPLCamFast(nn.Module):
 
     def __init__(self, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(Simple3DPoseBaseSMPLCam, self).__init__()
+        super(Simple3DPoseBaseSMPLCamFast, self).__init__()
         self.deconv_dim = kwargs['NUM_DECONV_FILTERS']
         self._norm_layer = norm_layer
         self.num_joints = kwargs['NUM_JOINTS']
@@ -311,51 +311,28 @@ class Simple3DPoseBaseSMPLCam(nn.Module):
 
         pred_xyz_jts_29_flat = pred_xyz_jts_29.reshape(batch_size, -1)
 
-        output = self.smpl.hybrik(
+        rot_mats = self.smpl.hybrik_fast(
             pose_skeleton=pred_xyz_jts_29.type(self.smpl_dtype) * self.depth_factor,  # unit: meter
             betas=pred_shape.type(self.smpl_dtype),
             phis=pred_phi.type(self.smpl_dtype),
             global_orient=None,
             return_verts=True)
 
-        pred_vertices = output.vertices.float()
-        #  -0.5 ~ 0.5
-        pred_xyz_jts_24_struct = output.joints.float() / self.depth_factor
-        #  -0.5 ~ 0.5
-        pred_xyz_jts_17 = output.joints_from_verts.float() / self.depth_factor
-        pred_theta_mats = output.rot_mats.float().reshape(batch_size, 24 * 9)
-        pred_xyz_jts_24 = pred_xyz_jts_29[:, :24, :].reshape(batch_size, 72)
-        pred_xyz_jts_24_struct = pred_xyz_jts_24_struct.reshape(batch_size, 72)
-        pred_xyz_jts_17_flat = pred_xyz_jts_17.reshape(batch_size, 17 * 3)
-
-        transl = camera_root - output.joints.float().reshape(-1, 24, 3)[:, 0, :]
-
         output = edict(
             pred_phi=pred_phi,
             pred_delta_shape=delta_shape,
             pred_shape=pred_shape,
-            pred_theta_mats=pred_theta_mats,
             pred_uvd_jts=pred_uvd_jts_29.reshape(batch_size, -1),
             pred_xyz_jts_29=pred_xyz_jts_29_flat,
-            pred_xyz_jts_24=pred_xyz_jts_24,
-            pred_xyz_jts_24_struct=pred_xyz_jts_24_struct,
-            pred_xyz_jts_17=pred_xyz_jts_17_flat,
-            pred_vertices=pred_vertices,
             maxvals=maxvals,
             cam_scale=camScale[:, 0],
             cam_trans=camTrans[:, 0],
             cam_root=camera_root,
-            transl=transl,
+            transl=camera_root,
             # pred_sigma=sigma,
             # scores=1 - sigma,
             # uvd_heatmap=torch.stack([hm_x0, hm_y0, hm_z0], dim=2),
             # uvd_heatmap=heatmaps,
             # img_feat=x0
         )
-        return output
-
-    def forward_gt_theta(self, gt_theta, gt_beta):
-
-        output = self.smpl(pose_axis_angle=gt_theta, betas=gt_beta, global_orient=None, return_verts=True)
-
         return output

@@ -269,6 +269,109 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h
     return verts, J_transformed, rot_mats, J_from_verts
 
 
+def hybrik_fast(betas, global_orient, pose_skeleton, phis, v_template, shapedirs, posedirs, J_regressor, J_regressor_h36m, parents, children, lbs_weights, dtype=torch.float32, train=False, leaf_thetas=None):
+    ''' Performs Linear Blend Skinning with the given shape and skeleton joints
+
+        Parameters
+        ----------
+        betas : torch.tensor BxNB
+            The tensor of shape parameters
+        global_orient : torch.tensor Bx3
+            The tensor of global orientation
+        pose_skeleton : torch.tensor BxJ*3
+            The pose skeleton in (X, Y, Z) format
+        phis : torch.tensor BxJx2
+            The rotation on bone axis parameters
+        v_template torch.tensor BxVx3
+            The template mesh that will be deformed
+        shapedirs : torch.tensor 1xNB
+            The tensor of PCA shape displacements
+        posedirs : torch.tensor Px(V * 3)
+            The pose PCA coefficients
+        J_regressor : torch.tensor JxV
+            The regressor array that is used to calculate the joints from
+            the position of the vertices
+        J_regressor_h36m : torch.tensor 17xV
+            The regressor array that is used to calculate the 17 Human3.6M joints from
+            the position of the vertices
+        parents: torch.tensor J
+            The array that describes the kinematic parents for the model
+        children: dict
+            The dictionary that describes the kinematic chidrens for the model
+        lbs_weights: torch.tensor N x V x (J + 1)
+            The linear blend skinning weights that represent how much the
+            rotation matrix of each part affects each vertex
+        dtype: torch.dtype, optional
+
+        Returns
+        -------
+        verts: torch.tensor BxVx3
+            The vertices of the mesh after applying the shape and pose
+            displacements.
+        joints: torch.tensor BxJx3
+            The joints of the model
+        rot_mats: torch.tensor BxJx3x3
+            The rotation matrics of each joints
+    '''
+    batch_size = max(betas.shape[0], pose_skeleton.shape[0])
+    device = betas.device
+
+    # 1. Add shape contribution
+    v_shaped = v_template + blend_shapes(betas, shapedirs)
+
+    # 2. Get the rest joints
+    # NxJx3 array
+    if leaf_thetas is not None:
+        rest_J = vertices2joints(J_regressor, v_shaped)
+    else:
+        rest_J = torch.zeros((v_shaped.shape[0], 29, 3), dtype=dtype, device=device)
+        rest_J[:, :24] = vertices2joints(J_regressor, v_shaped)
+
+        leaf_number = [411, 2445, 5905, 3216, 6617]
+        leaf_vertices = v_shaped[:, leaf_number].clone()
+        rest_J[:, 24:] = leaf_vertices
+
+    # 3. Get the rotation matrics
+    if train:
+        rot_mats, rotate_rest_pose = batch_inverse_kinematics_transform_naive(pose_skeleton, global_orient, phis, rest_J.clone(), children, parents, dtype=dtype, train=train, leaf_thetas=leaf_thetas)
+    else:
+        rot_mats, rotate_rest_pose = batch_inverse_kinematics_transform(pose_skeleton, global_orient, phis, rest_J.clone(), children, parents, dtype=dtype, train=train, leaf_thetas=leaf_thetas)
+
+        return rot_mats
+    # test_joints = True
+    # if test_joints:
+    #     J_transformed, A = batch_rigid_transform(rot_mats, rest_J[:, :24].clone(), parents[:24], dtype=dtype)
+    # else:
+    #     J_transformed = None
+
+    # assert torch.mean(torch.abs(rotate_rest_pose - J_transformed)) < 1e-5
+    # 4. Add pose blend shapes
+    # rot_mats: N x (J + 1) x 3 x 3
+    # ident = torch.eye(3, dtype=dtype, device=device)
+    # pose_feature = (rot_mats[:, 1:] - ident).view([batch_size, -1])
+    # pose_offsets = torch.matmul(pose_feature, posedirs) \
+    #     .view(batch_size, -1, 3)
+
+    # v_posed = pose_offsets + v_shaped
+
+    # # 5. Do skinning:
+    # # W is N x V x (J + 1)
+    # W = lbs_weights.unsqueeze(dim=0).expand([batch_size, -1, -1])
+    # # (N x V x (J + 1)) x (N x (J + 1) x 16)
+    # num_joints = J_regressor.shape[0]
+    # T = torch.matmul(W, A.view(batch_size, num_joints, 16)) \
+    #     .view(batch_size, -1, 4, 4)
+
+    # homogen_coord = torch.ones([batch_size, v_posed.shape[1], 1], dtype=dtype, device=device)
+    # v_posed_homo = torch.cat([v_posed, homogen_coord], dim=2)
+    # v_homo = torch.matmul(T, torch.unsqueeze(v_posed_homo, dim=-1))
+
+    # verts = v_homo[:, :, :3, 0]
+    # J_from_verts_h36m = vertices2joints(J_regressor_h36m, verts)
+
+    # return verts, J_transformed, rot_mats, J_from_verts_h36m
+
+
 def hybrik(betas, global_orient, pose_skeleton, phis, v_template, shapedirs, posedirs, J_regressor, J_regressor_h36m, parents, children, lbs_weights, dtype=torch.float32, train=False, leaf_thetas=None):
     ''' Performs Linear Blend Skinning with the given shape and skeleton joints
 

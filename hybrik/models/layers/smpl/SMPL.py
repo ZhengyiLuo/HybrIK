@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from .lbs import lbs, hybrik, rotmat_to_quat, quat_to_rotmat
+from .lbs import lbs, hybrik, hybrik_fast, rotmat_to_quat, quat_to_rotmat
 
 try:
     import cPickle as pk
@@ -203,6 +203,54 @@ class SMPL_layer(nn.Module):
 
         output = ModelOutput(vertices=vertices, joints=joints, rot_mats=rot_mats, joints_from_verts=joints_from_verts_h36m)
         return output
+
+    def hybrik_fast(self, pose_skeleton, betas, phis, global_orient, transl=None, return_verts=True, leaf_thetas=None):
+        ''' Inverse pass for the SMPL model
+
+            Parameters
+            ----------
+            pose_skeleton: torch.tensor, optional, shape Bx(J*3)
+                It should be a tensor that contains joint locations in
+                (X, Y, Z) format. (default=None)
+            betas: torch.tensor, optional, shape Bx10
+                It can used if shape parameters
+                `betas` are predicted from some external model.
+                (default=None)
+            global_orient: torch.tensor, optional, shape Bx3
+                Global Orientations.
+            transl: torch.tensor, optional, shape Bx3
+                Global Translations.
+            return_verts: bool, optional
+                Return the vertices. (default=True)
+
+            Returns
+            -------
+        '''
+        batch_size = pose_skeleton.shape[0]
+
+        if leaf_thetas is not None:
+            leaf_thetas = leaf_thetas.reshape(batch_size * 5, 4)
+            leaf_thetas = quat_to_rotmat(leaf_thetas)
+
+        rot_mats = hybrik_fast(betas, global_orient, pose_skeleton, phis, self.v_template, self.shapedirs, self.posedirs, self.J_regressor, self.J_regressor_h36m, self.parents, self.children_map, self.lbs_weights, dtype=self.dtype, train=self.training, leaf_thetas=leaf_thetas)
+
+        rot_mats = rot_mats.reshape(batch_size * 24, 3, 3)
+
+        return rot_mats
+        # rot_mats = rotmat_to_quat(rot_mats).reshape(batch_size, 24 * 4)
+
+        # if transl is not None:
+        #     new_joints += transl.unsqueeze(dim=1)
+        #     vertices += transl.unsqueeze(dim=1)
+        #     joints_from_verts += transl.unsqueeze(dim=1)
+        # else:
+        #     vertices = vertices - joints_from_verts[:, self.root_idx_17, :].unsqueeze(1).detach()
+        #     new_joints = new_joints - new_joints[:, self.root_idx_smpl, :].unsqueeze(1).detach()
+        #     joints_from_verts = joints_from_verts - joints_from_verts[:, self.root_idx_17, :].unsqueeze(1).detach()
+
+        # output = ModelOutput(vertices=vertices, joints=new_joints, rot_mats=rot_mats, joints_from_verts=joints_from_verts)
+
+        # return output
 
     def hybrik(self, pose_skeleton, betas, phis, global_orient, transl=None, return_verts=True, leaf_thetas=None):
         ''' Inverse pass for the SMPL model
