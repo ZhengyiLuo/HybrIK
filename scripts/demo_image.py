@@ -30,20 +30,10 @@ def xyxy2xywh(bbox):
 
 parser = argparse.ArgumentParser(description='HybrIK Demo')
 
-parser.add_argument('--gpu',
-                    help='gpu',
-                    default=0,
-                    type=int)
-parser.add_argument('--img-dir',
-                    help='image folder',
-                    default='',
-                    type=str)
-parser.add_argument('--out-dir',
-                    help='output folder',
-                    default='',
-                    type=str)
+parser.add_argument('--gpu', help='gpu', default=0, type=int)
+parser.add_argument('--img-dir', help='image folder', default='', type=str)
+parser.add_argument('--out-dir', help='output folder', default='', type=str)
 opt = parser.parse_args()
-
 
 # cfg_file = 'configs/256x192_adam_lr1e-3-res34_smpl_3d_cam_2x_mix_w_pw3d.yaml'
 # CKPT = './pretrained_w_cam.pth'
@@ -53,24 +43,21 @@ cfg = update_config(cfg_file)
 
 bbox_3d_shape = getattr(cfg.MODEL, 'BBOX_3D_SHAPE', (2000, 2000, 2000))
 bbox_3d_shape = [item * 1e-3 for item in bbox_3d_shape]
-dummpy_set = edict({
-    'joint_pairs_17': None,
-    'joint_pairs_24': None,
-    'joint_pairs_29': None,
-    'bbox_3d_shape': bbox_3d_shape
-})
+dummpy_set = edict({'joint_pairs_17': None, 'joint_pairs_24': None, 'joint_pairs_29': None, 'bbox_3d_shape': bbox_3d_shape})
 
-transformation = SimpleTransform3DSMPLCam(
-    dummpy_set, scale_factor=cfg.DATASET.SCALE_FACTOR,
-    color_factor=cfg.DATASET.COLOR_FACTOR,
-    occlusion=cfg.DATASET.OCCLUSION,
-    input_size=cfg.MODEL.IMAGE_SIZE,
-    output_size=cfg.MODEL.HEATMAP_SIZE,
-    depth_dim=cfg.MODEL.EXTRA.DEPTH_DIM,
-    bbox_3d_shape=bbox_3d_shape,
-    rot=cfg.DATASET.ROT_FACTOR, sigma=cfg.MODEL.EXTRA.SIGMA,
-    train=False, add_dpg=False,
-    loss_type=cfg.LOSS['TYPE'])
+transformation = SimpleTransform3DSMPLCam(dummpy_set,
+                                          scale_factor=cfg.DATASET.SCALE_FACTOR,
+                                          color_factor=cfg.DATASET.COLOR_FACTOR,
+                                          occlusion=cfg.DATASET.OCCLUSION,
+                                          input_size=cfg.MODEL.IMAGE_SIZE,
+                                          output_size=cfg.MODEL.HEATMAP_SIZE,
+                                          depth_dim=cfg.MODEL.EXTRA.DEPTH_DIM,
+                                          bbox_3d_shape=bbox_3d_shape,
+                                          rot=cfg.DATASET.ROT_FACTOR,
+                                          sigma=cfg.MODEL.EXTRA.SIGMA,
+                                          train=False,
+                                          add_dpg=False,
+                                          loss_type=cfg.LOSS['TYPE'])
 
 det_model = fasterrcnn_resnet50_fpn(pretrained=True)
 
@@ -115,14 +102,9 @@ for file in tqdm(files):
 
         # Run HybrIK
         # bbox: [x1, y1, x2, y2]
-        pose_input, bbox, img_center = transformation.test_transform(
-            input_image, tight_bbox)
+        pose_input, bbox, img_center = transformation.test_transform(input_image, tight_bbox)
         pose_input = pose_input.to(opt.gpu)[None, :, :, :]
-        pose_output = hybrik_model(
-            pose_input, flip_test=True,
-            bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(),
-            img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float()
-        )
+        pose_output = hybrik_model(pose_input, flip_test=True, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
         uv_29 = pose_output.pred_uvd_jts.reshape(29, 3)[:, :2]
         transl = pose_output.transl.detach()
 
@@ -138,10 +120,7 @@ for file in tqdm(files):
         verts_batch = vertices
         transl_batch = transl
 
-        color_batch = render_mesh(
-            vertices=verts_batch, faces=smpl_faces,
-            translation=transl_batch,
-            focal_length=focal, height=image.shape[0], width=image.shape[1])
+        color_batch = render_mesh(vertices=verts_batch, faces=smpl_faces, translation=transl_batch, focal_length=focal, height=image.shape[0], width=image.shape[1])
 
         valid_mask_batch = (color_batch[:, :, :, [-1]] > 0)
         image_vis_batch = color_batch[:, :, :, :3] * valid_mask_batch
@@ -151,8 +130,7 @@ for file in tqdm(files):
         valid_mask = valid_mask_batch[0].cpu().numpy()
         input_img = image
         alpha = 0.9
-        image_vis = alpha * color[:, :, :3] * valid_mask + (
-            1 - alpha) * input_img * valid_mask + (1 - valid_mask) * input_img
+        image_vis = alpha * color[:, :, :3] * valid_mask + (1 - alpha) * input_img * valid_mask + (1 - valid_mask) * input_img
 
         image_vis = image_vis.astype(np.uint8)
         image_vis = cv2.cvtColor(image_vis, cv2.COLOR_RGB2BGR)

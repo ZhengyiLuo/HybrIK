@@ -190,6 +190,8 @@ prev_box = None
 renderer = None
 smpl_faces = torch.from_numpy(hybrik_model.smpl.faces.astype(np.int32))
 import time
+
+
 print('### Run Model...')
 idx = 0
 for img_path in tqdm(img_path_list):
@@ -200,10 +202,10 @@ for img_path in tqdm(img_path_list):
         # Run Detection
         
         input_image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
+        t_s = time.time()
 
-        det_input = det_transform(input_image).to(opt.gpu)
+        yolo_output = det_model([input_image], size=360)
         
-        yolo_output = det_model([input_image], size=720)
         yolo_out_xyxy = torch.stack(yolo_output.xyxy)
         det_output = {
             "boxes": yolo_out_xyxy[:, 0, :4], 
@@ -227,104 +229,7 @@ for img_path in tqdm(img_path_list):
         
         
         pose_output = hybrik_model(pose_input, flip_test=False, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
+        dt = time.time() - t_s
+        print(1/dt)
 
-        uv_29 = pose_output.pred_uvd_jts.reshape(29, 3)[:, :2]
-        transl = pose_output.transl.detach()
-
-        # Visualization
-        image = input_image.copy()
-        focal = 1000.0
-        bbox_xywh = xyxy2xywh(bbox)
-        transl_camsys = transl.clone()
-        transl_camsys = transl_camsys * 256 / bbox_xywh[2]
-
-        focal = focal / 256 * bbox_xywh[2]
         
-
-        vertices = pose_output.pred_vertices.detach()
-
-        verts_batch = vertices
-        transl_batch = transl
-
-        color_batch = render_mesh(vertices=verts_batch, faces=smpl_faces, translation=transl_batch, focal_length=focal, height=image.shape[0], width=image.shape[1])
-
-        valid_mask_batch = (color_batch[:, :, :, [-1]] > 0)
-        image_vis_batch = color_batch[:, :, :, :3] * valid_mask_batch
-        image_vis_batch = (image_vis_batch * 255).cpu().numpy()
-
-        color = image_vis_batch[0]
-        valid_mask = valid_mask_batch[0].cpu().numpy()
-        input_img = image
-        alpha = 0.9
-        image_vis = alpha * color[:, :, :3] * valid_mask + (1 - alpha) * input_img * valid_mask + (1 - valid_mask) * input_img
-
-        image_vis = image_vis.astype(np.uint8)
-        image_vis = cv2.cvtColor(image_vis, cv2.COLOR_RGB2BGR)
-
-        if opt.save_img:
-            idx += 1
-            res_path = os.path.join(opt.out_dir, 'res_images', f'image-{idx:06d}.jpg')
-            cv2.imwrite(res_path, image_vis)
-        write_stream.write(image_vis)
-
-        # vis 2d
-        pts = uv_29 * bbox_xywh[2]
-        pts[:, 0] = pts[:, 0] + bbox_xywh[0]
-        pts[:, 1] = pts[:, 1] + bbox_xywh[1]
-        image = input_image.copy()
-
-
-        bbox_img = vis_2d(image, tight_bbox, pts)
-        bbox_img = cv2.cvtColor(bbox_img, cv2.COLOR_RGB2BGR)
-        write2d_stream.write(bbox_img)
-
-        if opt.save_img:
-            res_path = os.path.join(opt.out_dir, 'res_2d_images', f'image-{idx:06d}.jpg')
-            cv2.imwrite(res_path, bbox_img)
-
-        if opt.save_pk:
-            assert pose_input.shape[0] == 1, 'Only support single batch inference for now'
-
-            pred_xyz_jts_17 = pose_output.pred_xyz_jts_17.reshape(17, 3).cpu().data.numpy()
-            pred_uvd_jts = pose_output.pred_uvd_jts.reshape(-1, 3).cpu().data.numpy()
-            pred_xyz_jts_29 = pose_output.pred_xyz_jts_29.reshape(-1, 3).cpu().data.numpy()
-            pred_xyz_jts_24_struct = pose_output.pred_xyz_jts_24_struct.reshape(24, 3).cpu().data.numpy()
-            pred_scores = pose_output.maxvals.cpu().data[:, :29].reshape(29).numpy()
-            # pred_camera = pose_output.pred_camera.squeeze(dim=0).cpu().data.numpy()
-            pred_betas = pose_output.pred_shape.squeeze(dim=0).cpu().data.numpy()
-            pred_theta = pose_output.pred_theta_mats.squeeze(dim=0).cpu().data.numpy()
-            pred_phi = pose_output.pred_phi.squeeze(dim=0).cpu().data.numpy()
-            pred_cam_root = pose_output.cam_root.squeeze(dim=0).cpu().numpy()
-            img_size = np.array((input_image.shape[0], input_image.shape[1]))
-
-            res_db['pred_xyz_17'].append(pred_xyz_jts_17)
-            res_db['pred_uvd'].append(pred_uvd_jts)
-            res_db['pred_xyz_29'].append(pred_xyz_jts_29)
-            res_db['pred_xyz_24_struct'].append(pred_xyz_jts_24_struct)
-            res_db['pred_scores'].append(pred_scores)
-            # res_db['pred_camera'].append(pred_camera)
-            # res_db['f'].append(1000.0)
-            res_db['pred_betas'].append(pred_betas)
-            res_db['pred_thetas'].append(pred_theta)
-            res_db['pred_phi'].append(pred_phi)
-            res_db['pred_cam_root'].append(pred_cam_root)
-            # res_db['features'].append(img_feat)
-            res_db['transl'].append(transl[0].cpu().data.numpy())
-            res_db['transl_camsys'].append(transl_camsys[0].cpu().data.numpy())
-            res_db['bbox'].append(np.array(bbox))
-            res_db['height'].append(img_size[0])
-            res_db['width'].append(img_size[1])
-            res_db['img_path'].append(img_path)
-
-if opt.save_pk:
-    n_frames = len(res_db['img_path'])
-    for k in res_db.keys():
-        print(k)
-        res_db[k] = np.stack(res_db[k])
-        assert res_db[k].shape[0] == n_frames
-
-    with open(os.path.join(opt.out_dir, 'res.pk'), 'wb') as fid:
-        pk.dump(res_db, fid)
-
-write_stream.release()
-write2d_stream.release()

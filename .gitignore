@@ -24,6 +24,11 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.pt
+*.pth
+*.pkl
+res/
+res_dance/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

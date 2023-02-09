@@ -52,6 +52,7 @@ def norm_heatmap(norm_type, heatmap, tau=5, sample_num=1):
 
 @SPPE.register_module
 class HRNetSMPLCam(nn.Module):
+
     def __init__(self, norm_layer=nn.BatchNorm2d, **kwargs):
         super(HRNetSMPLCam, self).__init__()
         self._norm_layer = norm_layer
@@ -63,9 +64,7 @@ class HRNetSMPLCam(nn.Module):
         self.smpl_dtype = torch.float32
         self.pretrain_hrnet = kwargs['HR_PRETRAINED']
 
-        self.preact = get_hrnet(kwargs['HRNET_TYPE'], num_joints=self.num_joints,
-                                depth_dim=self.depth_dim,
-                                is_train=True, generate_feat=True, generate_hm=True)
+        self.preact = get_hrnet(kwargs['HRNET_TYPE'], num_joints=self.num_joints, depth_dim=self.depth_dim, is_train=True, generate_feat=True, generate_hm=True)
 
         # # Load pretrain model
         # model_state = self.preact.state_dict()
@@ -75,31 +74,20 @@ class HRNetSMPLCam(nn.Module):
         # self.preact.load_state_dict(model_state)
 
         h36m_jregressor = np.load('./model_files/J_regressor_h36m.npy')
-        self.smpl = SMPL_layer(
-            './model_files/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
-            h36m_jregressor=h36m_jregressor,
-            dtype=self.smpl_dtype
-        )
+        self.smpl = SMPL_layer('./model_files/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl', h36m_jregressor=h36m_jregressor, dtype=self.smpl_dtype)
 
-        self.joint_pairs_24 = ((1, 2), (4, 5), (7, 8),
-                               (10, 11), (13, 14), (16, 17), (18, 19), (20, 21), (22, 23))
+        self.joint_pairs_24 = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20, 21), (22, 23))
 
-        self.joint_pairs_29 = ((1, 2), (4, 5), (7, 8),
-                               (10, 11), (13, 14), (16, 17), (18, 19), (20, 21),
-                               (22, 23), (25, 26), (27, 28))
+        self.joint_pairs_29 = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20, 21), (22, 23), (25, 26), (27, 28))
 
         self.root_idx_smpl = 0
 
         # mean shape
         init_shape = np.load('./model_files/h36m_mean_beta.npy')
-        self.register_buffer(
-            'init_shape',
-            torch.Tensor(init_shape).float())
+        self.register_buffer('init_shape', torch.Tensor(init_shape).float())
 
         init_cam = torch.tensor([0.9])
-        self.register_buffer(
-            'init_cam',
-            torch.Tensor(init_cam).float())
+        self.register_buffer('init_cam', torch.Tensor(init_cam).float())
 
         self.decshape = nn.Linear(2048, 10)
         self.decphi = nn.Linear(2048, 23 * 2)  # [cos(phi), sin(phi)]
@@ -124,7 +112,7 @@ class HRNetSMPLCam(nn.Module):
             assert pred_jts.dim() == 3
             num_batches = pred_jts.shape[0]
 
-        pred_jts[:, :, 0] = - pred_jts[:, :, 0]
+        pred_jts[:, :, 0] = -pred_jts[:, :, 0]
 
         for pair in self.joint_pairs_29:
             dim0, dim1 = pair
@@ -240,7 +228,7 @@ class HRNetSMPLCam(nn.Module):
         pred_uvd_jts_29 = torch.cat((coord_x, coord_y, coord_z), dim=2)
 
         x0 = x0.view(x0.size(0), -1)
-        init_shape = self.init_shape.expand(batch_size, -1)     # (B, 10,)
+        init_shape = self.init_shape.expand(batch_size, -1)  # (B, 10,)
         init_cam = self.init_cam.expand(batch_size, -1)  # (B, 1,)
 
         xc = x0
@@ -325,8 +313,7 @@ class HRNetSMPLCam(nn.Module):
             betas=pred_shape.type(self.smpl_dtype),
             phis=pred_phi.type(self.smpl_dtype),
             global_orient=None,
-            return_verts=True
-        )
+            return_verts=True)
         pred_vertices = output.vertices.float()
         #  -0.5 ~ 0.5
         pred_xyz_jts_24_struct = output.joints.float() / self.depth_factor
@@ -360,17 +347,11 @@ class HRNetSMPLCam(nn.Module):
             scores=1 - sigma,
             # uvd_heatmap=torch.stack([hm_x0, hm_y0, hm_z0], dim=2),
             # uvd_heatmap=heatmaps,
-            img_feat=x0
-        )
+            img_feat=x0)
         return output
 
     def forward_gt_theta(self, gt_theta, gt_beta):
 
-        output = self.smpl(
-            pose_axis_angle=gt_theta,
-            betas=gt_beta,
-            global_orient=None,
-            return_verts=True
-        )
+        output = self.smpl(pose_axis_angle=gt_theta, betas=gt_beta, global_orient=None, return_verts=True)
 
         return output

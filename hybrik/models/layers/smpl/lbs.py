@@ -28,14 +28,11 @@ def rot_mat_to_euler(rot_mats):
     # Calculates rotation matrix to euler angles
     # Careful for extreme cases of eular angles like [0.0, pi, 0.0]
 
-    sy = torch.sqrt(rot_mats[:, 0, 0] * rot_mats[:, 0, 0] +
-                    rot_mats[:, 1, 0] * rot_mats[:, 1, 0])
+    sy = torch.sqrt(rot_mats[:, 0, 0] * rot_mats[:, 0, 0] + rot_mats[:, 1, 0] * rot_mats[:, 1, 0])
     return torch.atan2(-rot_mats[:, 2, 0], sy)
 
 
-def find_dynamic_lmk_idx_and_bcoords(vertices, pose, dynamic_lmk_faces_idx,
-                                     dynamic_lmk_b_coords,
-                                     neck_kin_chain, dtype=torch.float32):
+def find_dynamic_lmk_idx_and_bcoords(vertices, pose, dynamic_lmk_faces_idx, dynamic_lmk_b_coords, neck_kin_chain, dtype=torch.float32):
     ''' Compute the faces, barycentric coordinates for the dynamic landmarks
 
 
@@ -73,30 +70,21 @@ def find_dynamic_lmk_idx_and_bcoords(vertices, pose, dynamic_lmk_faces_idx,
 
     batch_size = vertices.shape[0]
 
-    aa_pose = torch.index_select(pose.view(batch_size, -1, 3), 1,
-                                 neck_kin_chain)
-    rot_mats = batch_rodrigues(
-        aa_pose.view(-1, 3), dtype=dtype).view(batch_size, -1, 3, 3)
+    aa_pose = torch.index_select(pose.view(batch_size, -1, 3), 1, neck_kin_chain)
+    rot_mats = batch_rodrigues(aa_pose.view(-1, 3), dtype=dtype).view(batch_size, -1, 3, 3)
 
-    rel_rot_mat = torch.eye(
-        3, device=vertices.device, dtype=dtype).unsqueeze_(dim=0).repeat(
-        batch_size, 1, 1)
+    rel_rot_mat = torch.eye(3, device=vertices.device, dtype=dtype).unsqueeze_(dim=0).repeat(batch_size, 1, 1)
     for idx in range(len(neck_kin_chain)):
         rel_rot_mat = torch.bmm(rot_mats[:, idx], rel_rot_mat)
 
-    y_rot_angle = torch.round(
-        torch.clamp(-rot_mat_to_euler(rel_rot_mat) * 180.0 / np.pi,
-                    max=39)).to(dtype=torch.long)
+    y_rot_angle = torch.round(torch.clamp(-rot_mat_to_euler(rel_rot_mat) * 180.0 / np.pi, max=39)).to(dtype=torch.long)
     neg_mask = y_rot_angle.lt(0).to(dtype=torch.long)
     mask = y_rot_angle.lt(-39).to(dtype=torch.long)
     neg_vals = mask * 78 + (1 - mask) * (39 - y_rot_angle)
-    y_rot_angle = (neg_mask * neg_vals +
-                   (1 - neg_mask) * y_rot_angle)
+    y_rot_angle = (neg_mask * neg_vals + (1 - neg_mask) * y_rot_angle)
 
-    dyn_lmk_faces_idx = torch.index_select(dynamic_lmk_faces_idx,
-                                           0, y_rot_angle)
-    dyn_lmk_b_coords = torch.index_select(dynamic_lmk_b_coords,
-                                          0, y_rot_angle)
+    dyn_lmk_faces_idx = torch.index_select(dynamic_lmk_faces_idx, 0, y_rot_angle)
+    dyn_lmk_b_coords = torch.index_select(dynamic_lmk_b_coords, 0, y_rot_angle)
 
     return dyn_lmk_faces_idx, dyn_lmk_b_coords
 
@@ -127,14 +115,11 @@ def vertices2landmarks(vertices, faces, lmk_faces_idx, lmk_bary_coords):
     batch_size, num_verts = vertices.shape[:2]
     device = vertices.device
 
-    lmk_faces = torch.index_select(faces, 0, lmk_faces_idx.view(-1)).view(
-        batch_size, -1, 3)
+    lmk_faces = torch.index_select(faces, 0, lmk_faces_idx.view(-1)).view(batch_size, -1, 3)
 
-    lmk_faces += torch.arange(
-        batch_size, dtype=torch.long, device=device).view(-1, 1, 1) * num_verts
+    lmk_faces += torch.arange(batch_size, dtype=torch.long, device=device).view(-1, 1, 1) * num_verts
 
-    lmk_vertices = vertices.view(-1, 3)[lmk_faces].view(
-        batch_size, -1, 3, 3)
+    lmk_vertices = vertices.view(-1, 3)[lmk_faces].view(batch_size, -1, 3, 3)
 
     landmarks = torch.einsum('blfi,blf->bli', [lmk_vertices, lmk_bary_coords])
     return landmarks
@@ -192,8 +177,7 @@ def bones2joints(bone_dirs, bone_lens, parents):
     return joints
 
 
-def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h36m, parents,
-        lbs_weights, pose2rot=True, dtype=torch.float32):
+def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h36m, parents, lbs_weights, pose2rot=True, dtype=torch.float32):
     ''' Performs Linear Blend Skinning with the given shape and pose parameters
 
         Parameters
@@ -250,8 +234,7 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h
         if pose.numel() == batch_size * 24 * 4:
             rot_mats = quat_to_rotmat(pose.reshape(batch_size * 24, 4)).reshape(batch_size, 24, 3, 3)
         else:
-            rot_mats = batch_rodrigues(
-                pose.view(-1, 3), dtype=dtype).view([batch_size, -1, 3, 3])
+            rot_mats = batch_rodrigues(pose.view(-1, 3), dtype=dtype).view([batch_size, -1, 3, 3])
 
         pose_feature = (rot_mats[:, 1:, :, :] - ident).view([batch_size, -1])
         # (N x P) x (P, V * 3) -> N x V x 3
@@ -261,8 +244,7 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h
         pose_feature = pose[:, 1:].view(batch_size, -1, 3, 3) - ident
         rot_mats = pose.view(batch_size, -1, 3, 3)
 
-        pose_offsets = torch.matmul(pose_feature.view(batch_size, -1),
-                                    posedirs).view(batch_size, -1, 3)
+        pose_offsets = torch.matmul(pose_feature.view(batch_size, -1), posedirs).view(batch_size, -1, 3)
 
     v_posed = pose_offsets + v_shaped
     # 4. Get the global joint location
@@ -276,8 +258,7 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h
     T = torch.matmul(W, A.view(batch_size, num_joints, 16)) \
         .view(batch_size, -1, 4, 4)
 
-    homogen_coord = torch.ones([batch_size, v_posed.shape[1], 1],
-                               dtype=dtype, device=device)
+    homogen_coord = torch.ones([batch_size, v_posed.shape[1], 1], dtype=dtype, device=device)
     v_posed_homo = torch.cat([v_posed, homogen_coord], dim=2)
     v_homo = torch.matmul(T, torch.unsqueeze(v_posed_homo, dim=-1))
 
@@ -288,9 +269,7 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, J_regressor_h
     return verts, J_transformed, rot_mats, J_from_verts
 
 
-def hybrik(betas, global_orient, pose_skeleton, phis,
-           v_template, shapedirs, posedirs, J_regressor, J_regressor_h36m, parents, children,
-           lbs_weights, dtype=torch.float32, train=False, leaf_thetas=None):
+def hybrik(betas, global_orient, pose_skeleton, phis, v_template, shapedirs, posedirs, J_regressor, J_regressor_h36m, parents, children, lbs_weights, dtype=torch.float32, train=False, leaf_thetas=None):
     ''' Performs Linear Blend Skinning with the given shape and skeleton joints
 
         Parameters
@@ -354,15 +333,9 @@ def hybrik(betas, global_orient, pose_skeleton, phis,
 
     # 3. Get the rotation matrics
     if train:
-        rot_mats, rotate_rest_pose = batch_inverse_kinematics_transform_naive(
-            pose_skeleton, global_orient, phis,
-            rest_J.clone(), children, parents, dtype=dtype, train=train,
-            leaf_thetas=leaf_thetas)
+        rot_mats, rotate_rest_pose = batch_inverse_kinematics_transform_naive(pose_skeleton, global_orient, phis, rest_J.clone(), children, parents, dtype=dtype, train=train, leaf_thetas=leaf_thetas)
     else:
-        rot_mats, rotate_rest_pose = batch_inverse_kinematics_transform(
-            pose_skeleton, global_orient, phis,
-            rest_J.clone(), children, parents, dtype=dtype, train=train,
-            leaf_thetas=leaf_thetas)
+        rot_mats, rotate_rest_pose = batch_inverse_kinematics_transform(pose_skeleton, global_orient, phis, rest_J.clone(), children, parents, dtype=dtype, train=train, leaf_thetas=leaf_thetas)
 
     test_joints = True
     if test_joints:
@@ -388,8 +361,7 @@ def hybrik(betas, global_orient, pose_skeleton, phis,
     T = torch.matmul(W, A.view(batch_size, num_joints, 16)) \
         .view(batch_size, -1, 4, 4)
 
-    homogen_coord = torch.ones([batch_size, v_posed.shape[1], 1],
-                               dtype=dtype, device=device)
+    homogen_coord = torch.ones([batch_size, v_posed.shape[1], 1], dtype=dtype, device=device)
     v_posed_homo = torch.cat([v_posed, homogen_coord], dim=2)
     v_homo = torch.matmul(T, torch.unsqueeze(v_posed_homo, dim=-1))
 
@@ -486,8 +458,7 @@ def transform_mat(R, t):
             - T: Bx4x4 Transformation matrix
     '''
     # No padding left or right, only add an extra row
-    return torch.cat([F.pad(R, [0, 0, 0, 1]),
-                      F.pad(t, [0, 0, 0, 1], value=1)], dim=2)
+    return torch.cat([F.pad(R, [0, 0, 0, 1]), F.pad(t, [0, 0, 0, 1], value=1)], dim=2)
 
 
 def batch_rigid_transform(rot_mats, joints, parents, dtype=torch.float32):
@@ -518,17 +489,14 @@ def batch_rigid_transform(rot_mats, joints, parents, dtype=torch.float32):
     rel_joints[:, 1:] -= joints[:, parents[1:]].clone()
 
     # (B, K + 1, 4, 4)
-    transforms_mat = transform_mat(
-        rot_mats.reshape(-1, 3, 3),
-        rel_joints.reshape(-1, 3, 1)).reshape(-1, joints.shape[1], 4, 4)
+    transforms_mat = transform_mat(rot_mats.reshape(-1, 3, 3), rel_joints.reshape(-1, 3, 1)).reshape(-1, joints.shape[1], 4, 4)
 
     transform_chain = [transforms_mat[:, 0]]
     for i in range(1, parents.shape[0]):
         # Subtract the joint location at the rest pose
         # No need for rotation, since it's identity when at rest
         # (B, 4, 4) x (B, 4, 4)
-        curr_res = torch.matmul(transform_chain[parents[i]],
-                                transforms_mat[:, i])
+        curr_res = torch.matmul(transform_chain[parents[i]], transforms_mat[:, i])
         transform_chain.append(curr_res)
 
     # (B, K + 1, 4, 4)
@@ -542,18 +510,12 @@ def batch_rigid_transform(rot_mats, joints, parents, dtype=torch.float32):
 
     joints_homogen = F.pad(joints, [0, 0, 0, 1])
 
-    rel_transforms = transforms - F.pad(
-        torch.matmul(transforms, joints_homogen), [3, 0, 0, 0, 0, 0, 0, 0])
+    rel_transforms = transforms - F.pad(torch.matmul(transforms, joints_homogen), [3, 0, 0, 0, 0, 0, 0, 0])
 
     return posed_joints, rel_transforms
 
 
-def batch_inverse_kinematics_transform(
-        pose_skeleton, global_orient,
-        phis,
-        rest_pose,
-        children, parents, dtype=torch.float32, train=False,
-        leaf_thetas=None):
+def batch_inverse_kinematics_transform(pose_skeleton, global_orient, phis, rest_pose, children, parents, dtype=torch.float32, train=False, leaf_thetas=None):
     """
     Applies a batch of inverse kinematics transfoirm to the joints
 
@@ -612,11 +574,9 @@ def batch_inverse_kinematics_transform(
 
     # TODO
     if train:
-        global_orient_mat = batch_get_pelvis_orient(
-            rel_pose_skeleton.clone(), rel_rest_pose.clone(), parents, children, dtype)
+        global_orient_mat = batch_get_pelvis_orient(rel_pose_skeleton.clone(), rel_rest_pose.clone(), parents, children, dtype)
     else:
-        global_orient_mat = batch_get_pelvis_orient_svd(
-            rel_pose_skeleton.clone(), rel_rest_pose.clone(), parents, children, dtype)
+        global_orient_mat = batch_get_pelvis_orient_svd(rel_pose_skeleton.clone(), rel_rest_pose.clone(), parents, children, dtype)
 
     rot_mat_chain = [global_orient_mat]
     rot_mat_local = [global_orient_mat]
@@ -632,21 +592,13 @@ def batch_inverse_kinematics_transform(
                 rot_mat = leaf_rot_mats[:, leaf_cnt, :, :]
                 leaf_cnt += 1
 
-                rotate_rest_pose[:, i] = rotate_rest_pose[:, parents[i]] + torch.matmul(
-                    rot_mat_chain[parents[i]],
-                    rel_rest_pose[:, i]
-                )
+                rotate_rest_pose[:, i] = rotate_rest_pose[:, parents[i]] + torch.matmul(rot_mat_chain[parents[i]], rel_rest_pose[:, i])
 
-                rot_mat_chain.append(torch.matmul(
-                    rot_mat_chain[parents[i]],
-                    rot_mat))
+                rot_mat_chain.append(torch.matmul(rot_mat_chain[parents[i]], rot_mat))
                 rot_mat_local.append(rot_mat)
         elif children[i] == -3:
             # three children
-            rotate_rest_pose[:, i] = rotate_rest_pose[:, parents[i]] + torch.matmul(
-                rot_mat_chain[parents[i]],
-                rel_rest_pose[:, i]
-            )
+            rotate_rest_pose[:, i] = rotate_rest_pose[:, parents[i]] + torch.matmul(rot_mat_chain[parents[i]], rel_rest_pose[:, i])
 
             spine_child = []
             for c in range(1, parents.shape[0]):
@@ -667,22 +619,13 @@ def batch_inverse_kinematics_transform(
 
                 children_rest_loc.append(rel_rest_pose[:, c].clone())
 
-            rot_mat = batch_get_3children_orient_svd(
-                children_final_loc, children_rest_loc,
-                rot_mat_chain[parents[i]], spine_child, dtype)
+            rot_mat = batch_get_3children_orient_svd(children_final_loc, children_rest_loc, rot_mat_chain[parents[i]], spine_child, dtype)
 
-            rot_mat_chain.append(
-                torch.matmul(
-                    rot_mat_chain[parents[i]],
-                    rot_mat)
-            )
+            rot_mat_chain.append(torch.matmul(rot_mat_chain[parents[i]], rot_mat))
             rot_mat_local.append(rot_mat)
         else:
             # (B, 3, 1)
-            rotate_rest_pose[:, i] = rotate_rest_pose[:, parents[i]] + torch.matmul(
-                rot_mat_chain[parents[i]],
-                rel_rest_pose[:, i]
-            )
+            rotate_rest_pose[:, i] = rotate_rest_pose[:, parents[i]] + torch.matmul(rot_mat_chain[parents[i]], rel_rest_pose[:, i])
             # (B, 3, 1)
             child_final_loc = final_pose_skeleton[:, children[i]] - rotate_rest_pose[:, i]
 
@@ -697,9 +640,7 @@ def batch_inverse_kinematics_transform(
 
                 child_final_loc[big_diff_idx] = orig_vec[big_diff_idx]
 
-            child_final_loc = torch.matmul(
-                rot_mat_chain[parents[i]].transpose(1, 2),
-                child_final_loc)
+            child_final_loc = torch.matmul(rot_mat_chain[parents[i]].transpose(1, 2), child_final_loc)
 
             child_rest_loc = rel_rest_pose[:, children[i]]
             # (B, 1, 1)
@@ -745,9 +686,7 @@ def batch_inverse_kinematics_transform(
             rot_mat_spin = ident + sin * K + (1 - cos) * torch.bmm(K, K)
             rot_mat = torch.matmul(rot_mat_loc, rot_mat_spin)
 
-            rot_mat_chain.append(torch.matmul(
-                rot_mat_chain[parents[i]],
-                rot_mat))
+            rot_mat_chain.append(torch.matmul(rot_mat_chain[parents[i]], rot_mat))
             rot_mat_local.append(rot_mat)
 
     # (B, K + 1, 3, 3)
@@ -756,12 +695,7 @@ def batch_inverse_kinematics_transform(
     return rot_mats, rotate_rest_pose.squeeze(-1)
 
 
-def batch_inverse_kinematics_transform_naive(
-        pose_skeleton, global_orient,
-        phis,
-        rest_pose,
-        children, parents, dtype=torch.float32, train=False,
-        leaf_thetas=None, need_detach=True):
+def batch_inverse_kinematics_transform_naive(pose_skeleton, global_orient, phis, rest_pose, children, parents, dtype=torch.float32, train=False, leaf_thetas=None, need_detach=True):
     """
     Applies a batch of inverse kinematics transfoirm to the joints
 
@@ -801,7 +735,7 @@ def batch_inverse_kinematics_transform_naive(
     rotate_rest_pose = torch.zeros_like(rel_rest_pose)
     # set up the root
     rotate_rest_pose[:, 0] = rel_rest_pose[:, 0]
-    
+
     if need_detach:
         rel_pose_skeleton = torch.unsqueeze(pose_skeleton.clone(), dim=-1).detach()
     else:
@@ -818,8 +752,7 @@ def batch_inverse_kinematics_transform_naive(
 
     # TODO
     if global_orient is None:
-        global_orient_mat = batch_get_pelvis_orient(
-            rel_pose_skeleton.clone(), rel_rest_pose.clone(), parents, children, dtype)
+        global_orient_mat = batch_get_pelvis_orient(rel_pose_skeleton.clone(), rel_rest_pose.clone(), parents, children, dtype)
     else:
         global_orient_mat = global_orient
 
@@ -837,47 +770,28 @@ def batch_inverse_kinematics_transform_naive(
         leaf_cnt = 0
         leaf_rot_mats = leaf_thetas.view([batch_size, 5, 3, 3])
 
-    idx_levs = [
-        [0],
-        [1, 2, 3],
-        [4, 5, 6],
-        [7, 8, 9],
-        [12, 13, 14],
-        [15, 16, 17],
-        [18, 19, 10],
-        [20, 21, 11],
-        [22, 23],
-        [24, 25, 26, 27, 28]
-    ]
+    idx_levs = [[0], [1, 2, 3], [4, 5, 6], [7, 8, 9], [12, 13, 14], [15, 16, 17], [18, 19, 10], [20, 21, 11], [22, 23], [24, 25, 26, 27, 28]]
     if leaf_thetas is not None:
         idx_levs = idx_levs[:-1]
-    
+
     for idx_lev in range(1, len(idx_levs)):
         indices = idx_levs[idx_lev]
-        if idx_lev == len(idx_levs)-1:
+        if idx_lev == len(idx_levs) - 1:
             # leaf nodes
             if leaf_thetas is not None:
                 rot_mat = leaf_rot_mats[:, :, :, :]
 
-                rotate_rest_pose[:, indices] = rotate_rest_pose[:, parents[indices]] + torch.matmul(
-                    rot_mat_chain[:, parents[indices]], 
-                    rel_rest_pose[:, indices]
-                )
+                rotate_rest_pose[:, indices] = rotate_rest_pose[:, parents[indices]] + torch.matmul(rot_mat_chain[:, parents[indices]], rel_rest_pose[:, indices])
 
-                rot_mat_chain[:, indices] = torch.matmul(
-                    rot_mat_chain[:, parents[indices]], 
-                    rot_mat
-                )
+                rot_mat_chain[:, indices] = torch.matmul(rot_mat_chain[:, parents[indices]], rot_mat)
                 rot_mat_local[:, indices] = rot_mat
-        
+
         else:
             len_indices = len(indices)
             # (B, K, 3, 1)
-            child_final_loc = torch.matmul(
-                    rot_mat_chain[:, parents[indices]].transpose(2, 3),
-                    rel_pose_skeleton[:, children[indices]])
+            child_final_loc = torch.matmul(rot_mat_chain[:, parents[indices]].transpose(2, 3), rel_pose_skeleton[:, children[indices]])
 
-            child_rest_loc = rel_rest_pose[:, children[indices]] # need rotation back ?
+            child_rest_loc = rel_rest_pose[:, children[indices]]  # need rotation back ?
             # (B, K, 1, 1)
             child_final_norm = torch.norm(child_final_loc, dim=2, keepdim=True)
             child_rest_norm = torch.norm(child_rest_loc, dim=2, keepdim=True)
@@ -913,17 +827,14 @@ def batch_inverse_kinematics_transform_naive(
                 .view((batch_size, len_indices, 3, 3))
             ident = torch.eye(3, dtype=dtype, device=device).reshape(1, 1, 3, 3)
             # (B, K, 1, 1)
-            phi_indices = [item-1 for item in indices]
+            phi_indices = [item - 1 for item in indices]
             cos, sin = torch.split(phis[:, phi_indices], 1, dim=2)
             cos = torch.unsqueeze(cos, dim=3)
             sin = torch.unsqueeze(sin, dim=3)
             rot_mat_spin = ident + sin * K + (1 - cos) * torch.matmul(K, K)
             rot_mat = torch.matmul(rot_mat_loc, rot_mat_spin)
 
-            rot_mat_chain[:, indices] = torch.matmul(
-                    rot_mat_chain[:, parents[indices]], 
-                    rot_mat
-                )
+            rot_mat_chain[:, indices] = torch.matmul(rot_mat_chain[:, parents[indices]], rot_mat)
             rot_mat_local[:, indices] = rot_mat
 
     # (B, K + 1, 3, 3)
@@ -931,7 +842,6 @@ def batch_inverse_kinematics_transform_naive(
     rot_mats = rot_mat_local
 
     return rot_mats, rotate_rest_pose.squeeze(-1)
-
 
 
 def batch_get_pelvis_orient_svd(rel_pose_skeleton, rel_rest_pose, parents, children, dtype):
@@ -991,16 +901,13 @@ def batch_get_pelvis_orient(rel_pose_skeleton, rel_rest_pose, parents, children,
     spine_norm = torch.norm(spine_final_loc, dim=1, keepdim=True)
     spine_norm = spine_final_loc / (spine_norm + 1e-8)
 
-    assert torch.sum(torch.isnan(spine_rest_loc)
-                     ) == 0, ('spine_rest_loc', spine_rest_loc)
+    assert torch.sum(torch.isnan(spine_rest_loc)) == 0, ('spine_rest_loc', spine_rest_loc)
 
-    assert torch.sum(torch.isnan(spine_final_loc)
-                     ) == 0, ('spine_final_loc', spine_final_loc)
+    assert torch.sum(torch.isnan(spine_final_loc)) == 0, ('spine_final_loc', spine_final_loc)
 
     rot_mat_spine = vectors2rotmat(spine_rest_loc, spine_final_loc, dtype)
 
-    assert torch.sum(torch.isnan(rot_mat_spine)
-                     ) == 0, ('rot_mat_spine', rot_mat_spine)
+    assert torch.sum(torch.isnan(rot_mat_spine)) == 0, ('rot_mat_spine', rot_mat_spine)
     center_final_loc = 0
     center_rest_loc = 0
     for child in pelvis_child:
@@ -1027,10 +934,8 @@ def batch_get_pelvis_orient(rel_pose_skeleton, rel_rest_pose, parents, children,
     cos = torch.sum(center_rest_loc * center_final_loc, dim=1, keepdim=True) / (center_rest_loc_norm * center_final_loc_norm + 1e-8)
     sin = axis_norm / (center_rest_loc_norm * center_final_loc_norm + 1e-8)
 
-    assert torch.sum(torch.isnan(cos)
-                     ) == 0, ('cos', cos)
-    assert torch.sum(torch.isnan(sin)
-                     ) == 0, ('sin', sin)
+    assert torch.sum(torch.isnan(cos)) == 0, ('cos', cos)
+    assert torch.sum(torch.isnan(sin)) == 0, ('sin', sin)
     # (B, 3, 1)
     axis = axis / (axis_norm + 1e-8)
 
@@ -1060,9 +965,7 @@ def batch_get_3children_orient_svd(rel_pose_skeleton, rel_rest_pose, rot_mat_cha
             target = rel_pose_skeleton[:, child].clone()
             template = rel_rest_pose[:, child].clone()
 
-        target = torch.matmul(
-            rot_mat_chain_parent.transpose(1, 2),
-            target)
+        target = torch.matmul(rot_mat_chain_parent.transpose(1, 2), target)
 
         target_mat.append(target)
         rest_mat.append(template)
@@ -1122,8 +1025,7 @@ def vectors2rotmat(vec_rest, vec_final, dtype):
 def rotmat_to_quat(rotation_matrix):
     assert rotation_matrix.shape[1:] == (3, 3)
     rot_mat = rotation_matrix.reshape(-1, 3, 3)
-    hom = torch.tensor([0, 0, 1], dtype=torch.float32,
-                       device=rotation_matrix.device)
+    hom = torch.tensor([0, 0, 1], dtype=torch.float32, device=rotation_matrix.device)
     hom = hom.reshape(1, 3, 1).expand(rot_mat.shape[0], -1, -1)
     rotation_matrix = torch.cat([rot_mat, hom], dim=-1)
 
@@ -1155,17 +1057,12 @@ def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-6):
         >>> output = tgm.rotation_matrix_to_quaternion(input)  # Nx4
     """
     if not torch.is_tensor(rotation_matrix):
-        raise TypeError("Input type is not a torch.Tensor. Got {}".format(
-            type(rotation_matrix)))
+        raise TypeError("Input type is not a torch.Tensor. Got {}".format(type(rotation_matrix)))
 
     if len(rotation_matrix.shape) > 3:
-        raise ValueError(
-            "Input size must be a three dimensional tensor. Got {}".format(
-                rotation_matrix.shape))
+        raise ValueError("Input size must be a three dimensional tensor. Got {}".format(rotation_matrix.shape))
     if not rotation_matrix.shape[-2:] == (3, 4):
-        raise ValueError(
-            "Input size must be a N x 3 x 4  tensor. Got {}".format(
-                rotation_matrix.shape))
+        raise ValueError("Input size must be a N x 3 x 4  tensor. Got {}".format(rotation_matrix.shape))
 
     rmat_t = torch.transpose(rotation_matrix, 1, 2)
 
@@ -1175,27 +1072,19 @@ def rotation_matrix_to_quaternion(rotation_matrix, eps=1e-6):
     mask_d0_nd1 = rmat_t[:, 0, 0] < -rmat_t[:, 1, 1]
 
     t0 = 1 + rmat_t[:, 0, 0] - rmat_t[:, 1, 1] - rmat_t[:, 2, 2]
-    q0 = torch.stack([rmat_t[:, 1, 2] - rmat_t[:, 2, 1],
-                      t0, rmat_t[:, 0, 1] + rmat_t[:, 1, 0],
-                      rmat_t[:, 2, 0] + rmat_t[:, 0, 2]], -1)
+    q0 = torch.stack([rmat_t[:, 1, 2] - rmat_t[:, 2, 1], t0, rmat_t[:, 0, 1] + rmat_t[:, 1, 0], rmat_t[:, 2, 0] + rmat_t[:, 0, 2]], -1)
     t0_rep = t0.repeat(4, 1).t()
 
     t1 = 1 - rmat_t[:, 0, 0] + rmat_t[:, 1, 1] - rmat_t[:, 2, 2]
-    q1 = torch.stack([rmat_t[:, 2, 0] - rmat_t[:, 0, 2],
-                      rmat_t[:, 0, 1] + rmat_t[:, 1, 0],
-                      t1, rmat_t[:, 1, 2] + rmat_t[:, 2, 1]], -1)
+    q1 = torch.stack([rmat_t[:, 2, 0] - rmat_t[:, 0, 2], rmat_t[:, 0, 1] + rmat_t[:, 1, 0], t1, rmat_t[:, 1, 2] + rmat_t[:, 2, 1]], -1)
     t1_rep = t1.repeat(4, 1).t()
 
     t2 = 1 - rmat_t[:, 0, 0] - rmat_t[:, 1, 1] + rmat_t[:, 2, 2]
-    q2 = torch.stack([rmat_t[:, 0, 1] - rmat_t[:, 1, 0],
-                      rmat_t[:, 2, 0] + rmat_t[:, 0, 2],
-                      rmat_t[:, 1, 2] + rmat_t[:, 2, 1], t2], -1)
+    q2 = torch.stack([rmat_t[:, 0, 1] - rmat_t[:, 1, 0], rmat_t[:, 2, 0] + rmat_t[:, 0, 2], rmat_t[:, 1, 2] + rmat_t[:, 2, 1], t2], -1)
     t2_rep = t2.repeat(4, 1).t()
 
     t3 = 1 + rmat_t[:, 0, 0] + rmat_t[:, 1, 1] + rmat_t[:, 2, 2]
-    q3 = torch.stack([t3, rmat_t[:, 1, 2] - rmat_t[:, 2, 1],
-                      rmat_t[:, 2, 0] - rmat_t[:, 0, 2],
-                      rmat_t[:, 0, 1] - rmat_t[:, 1, 0]], -1)
+    q3 = torch.stack([t3, rmat_t[:, 1, 2] - rmat_t[:, 2, 1], rmat_t[:, 2, 0] - rmat_t[:, 0, 2], rmat_t[:, 0, 1] - rmat_t[:, 1, 0]], -1)
     t3_rep = t3.repeat(4, 1).t()
 
     mask_c0 = mask_d2 * mask_d0_d1
@@ -1231,7 +1120,5 @@ def quat_to_rotmat(quat):
     wx, wy, wz = w * x, w * y, w * z
     xy, xz, yz = x * y, x * z, y * z
 
-    rotMat = torch.stack([w2 + x2 - y2 - z2, 2 * xy - 2 * wz, 2 * wy + 2 * xz,
-                          2 * wz + 2 * xy, w2 - x2 + y2 - z2, 2 * yz - 2 * wx,
-                          2 * xz - 2 * wy, 2 * wx + 2 * yz, w2 - x2 - y2 + z2], dim=1).view(B, 3, 3)
+    rotMat = torch.stack([w2 + x2 - y2 - z2, 2 * xy - 2 * wz, 2 * wy + 2 * xz, 2 * wz + 2 * xy, w2 - x2 + y2 - z2, 2 * yz - 2 * wx, 2 * xz - 2 * wy, 2 * wx + 2 * yz, w2 - x2 - y2 + z2], dim=1).view(B, 3, 3)
     return rotMat

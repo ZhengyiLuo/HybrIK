@@ -6,73 +6,55 @@ import numpy as np
 import torch
 
 from ..bbox import _box_to_center_scale, _center_scale_to_box
-from ..transforms import (addDPG, affine_transform, flip_joints_3d, flip_thetas, flip_xyz_joints_3d,
-                          get_affine_transform, im_to_torch, batch_rodrigues_numpy, flip_twist,
-                          rotate_xyz_jts, rot_aa, flip_cam_xyz_joints_3d)
+from ..transforms import (addDPG, affine_transform, flip_joints_3d, flip_thetas, flip_xyz_joints_3d, get_affine_transform, im_to_torch, batch_rodrigues_numpy, flip_twist, rotate_xyz_jts, rot_aa, flip_cam_xyz_joints_3d)
 from ..pose_utils import get_intrinsic_metrix
 
-s_coco_2_smpl_jt = [
-    -1, 11, 12,
-    -1, 13, 14,
-    -1, 15, 16,
-    -1, -1, -1,
-    -1, -1, -1,
-    -1,
-    5, 6,
-    7, 8,
-    9, 10,
-    -1, -1
-]
+s_coco_2_smpl_jt = [-1, 11, 12, -1, 13, 14, -1, 15, 16, -1, -1, -1, -1, -1, -1, -1, 5, 6, 7, 8, 9, 10, -1, -1]
 
-s_coco_2_h36m_jt = [
-    -1,
-    -1, 13, 15,
-    -1, 14, 16,
-    -1, -1,
-    0, -1,
-    5, 7, 9,
-    6, 8, 10
-]
+s_coco_2_h36m_jt = [-1, -1, 13, 15, -1, 14, 16, -1, -1, 0, -1, 5, 7, 9, 6, 8, 10]
 
-s_coco_2_smpl_jt_2d = [
-    -1, -1, -1,
-    -1, 13, 14,
-    -1, 15, 16,
-    -1, -1, -1,
-    -1, -1, -1,
-    -1,
-    5, 6,
-    7, 8,
-    9, 10,
-    -1, -1
-]
+s_coco_2_smpl_jt_2d = [-1, -1, -1, -1, 13, 14, -1, 15, 16, -1, -1, -1, -1, -1, -1, -1, 5, 6, 7, 8, 9, 10, -1, -1]
 
-smpl_parents = [-1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14,
-                16, 17, 18, 19, 20, 21]
+smpl_parents = [-1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 12, 13, 14, 16, 17, 18, 19, 20, 21]
 
+left_bones_idx = [(0, 1), (1, 4), (4, 7), (12, 13), (13, 16), (16, 18), (18, 20)]
 
-left_bones_idx = [
-    (0, 1), (1, 4), (4, 7), (12, 13),
-    (13, 16), (16, 18), (18, 20)
-]
+right_bones_idx = [(0, 2), (2, 5), (5, 8), (12, 14), (14, 17), (17, 19), (19, 21)]
 
-right_bones_idx = [
-    (0, 2), (2, 5), (5, 8), (12, 14),
-    (14, 17), (17, 19), (19, 21)
-]
-
-skeleton_29 = [ 
-    (0, 1), (0, 2), (0, 3), (1, 4), (2, 5), (3, 6), # 5
-    (4, 7), (5, 8), (6, 9), (7, 10), (8, 11), (9, 12), # 11
-    (9, 13), (9, 14), (12, 15), (13, 16), (14, 17), (16, 18), # 17
-    (17, 19), (18, 20), (19, 21), (20, 22), (21, 23), (15, 24), # 23
-    (22, 25), (23, 26), (10, 27), (11, 28) # 27
+skeleton_29 = [
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (1, 4),
+    (2, 5),
+    (3, 6),  # 5
+    (4, 7),
+    (5, 8),
+    (6, 9),
+    (7, 10),
+    (8, 11),
+    (9, 12),  # 11
+    (9, 13),
+    (9, 14),
+    (12, 15),
+    (13, 16),
+    (14, 17),
+    (16, 18),  # 17
+    (17, 19),
+    (18, 20),
+    (19, 21),
+    (20, 22),
+    (21, 23),
+    (15, 24),  # 23
+    (22, 25),
+    (23, 26),
+    (10, 27),
+    (11, 28)  # 27
 ]
 
 skeleton_3dhp = np.array([(-1, -1)] * 28).astype(int)
-skeleton_3dhp[ [6, 7, 17, 18, 19, 20] ] = np.array([
-        (19, 20), (24, 25), (9, 10), (14, 15), (10, 11), (15, 16)
-    ]).astype(int)
+skeleton_3dhp[[6, 7, 17, 18, 19, 20]] = np.array([(19, 20), (24, 25), (9, 10), (14, 15), (10, 11), (15, 16)]).astype(int)
+
 
 class SimpleTransform3DSMPLCam(object):
     """Generation of cropped input person, pose coords, smpl parameters.
@@ -102,10 +84,7 @@ class SimpleTransform3DSMPLCam(object):
         True for training trasformation.
     """
 
-    def __init__(self, dataset, scale_factor, color_factor, occlusion, add_dpg,
-                 input_size, output_size, depth_dim, bbox_3d_shape,
-                 rot, sigma, train, loss_type='MSELoss', scale_mult=1.25, focal_length=1000, two_d=False,
-                 root_idx=0):
+    def __init__(self, dataset, scale_factor, color_factor, occlusion, add_dpg, input_size, output_size, depth_dim, bbox_3d_shape, rot, sigma, train, loss_type='MSELoss', scale_mult=1.25, focal_length=1000, two_d=False, root_idx=0):
         if two_d:
             self._joint_pairs = dataset.joint_pairs
         else:
@@ -135,7 +114,7 @@ class SimpleTransform3DSMPLCam(object):
         self.two_d = two_d
 
         # convert to unit: meter
-        self.depth_factor2meter = self.bbox_3d_shape[2] if self.bbox_3d_shape[2] < 500 else self.bbox_3d_shape[2]*1e-3
+        self.depth_factor2meter = self.bbox_3d_shape[2] if self.bbox_3d_shape[2] < 500 else self.bbox_3d_shape[2] * 1e-3
 
         self.focal_length = focal_length
         self.root_idx = root_idx
@@ -149,8 +128,7 @@ class SimpleTransform3DSMPLCam(object):
 
     def test_transform(self, src, bbox):
         xmin, ymin, xmax, ymax = bbox
-        center, scale = _box_to_center_scale(
-            xmin, ymin, xmax - xmin, ymax - ymin, self._aspect_ratio, scale_mult=self._scale_mult)
+        center, scale = _box_to_center_scale(xmin, ymin, xmax - xmin, ymax - ymin, self._aspect_ratio, scale_mult=self._scale_mult)
         scale = scale * 1.0
 
         input_size = self._input_size
@@ -232,7 +210,7 @@ class SimpleTransform3DSMPLCam(object):
 
         # if self.bbox_3d_shape[0] < 1000:
         #     print(self.bbox_3d_shape, target)
-        
+
         # assert (target[0] == 0).all(), f'{target}, {self.bbox_3d_shape}'
 
         target = target.reshape((-1))
@@ -261,16 +239,13 @@ class SimpleTransform3DSMPLCam(object):
                 bbox = addDPG(bbox, imgwidth, imght)
 
             xmin, ymin, xmax, ymax = bbox
-            center, scale = _box_to_center_scale(
-                xmin, ymin, xmax - xmin, ymax - ymin, self._aspect_ratio, scale_mult=self._scale_mult)
-            
+            center, scale = _box_to_center_scale(xmin, ymin, xmax - xmin, ymax - ymin, self._aspect_ratio, scale_mult=self._scale_mult)
+
             xmin, ymin, xmax, ymax = _center_scale_to_box(center, scale)
 
             # half body transform
             if self._train and (np.sum(joints_vis[:, 0]) > self.num_joints_half_body and np.random.rand() < self.prob_half_body):
-                c_half_body, s_half_body = self.half_body_transform(
-                    gt_joints[:, :, 0], joints_vis
-                )
+                c_half_body, s_half_body = self.half_body_transform(gt_joints[:, :, 0], joints_vis)
 
                 if c_half_body is not None and s_half_body is not None:
                     center, scale = c_half_body, s_half_body
@@ -311,9 +286,9 @@ class SimpleTransform3DSMPLCam(object):
                         synth_h = int(synth_h)
                         src[synth_ymin:synth_ymin + synth_h, synth_xmin:synth_xmin + synth_w, :] = np.random.rand(synth_h, synth_w, 3) * 255
                         break
-            
-            joint_cam = joint_cam.reshape(-1 , 3)
-            joints_xyz = joint_cam - joint_cam[[self.root_idx]].copy() # the root index of mpii_3d is 4 !!!
+
+            joint_cam = joint_cam.reshape(-1, 3)
+            joints_xyz = joint_cam - joint_cam[[self.root_idx]].copy()  # the root index of mpii_3d is 4 !!!
 
             joints = gt_joints
             if random.random() > 0.5 and self._train:
@@ -325,7 +300,7 @@ class SimpleTransform3DSMPLCam(object):
                 joints = flip_joints_3d(joints, imgwidth, self._joint_pairs)
                 joints_xyz = flip_xyz_joints_3d(joints_xyz, self._joint_pairs)
                 center[0] = imgwidth - center[0] - 1
-            
+
             joints_xyz = rotate_xyz_jts(joints_xyz, r)
 
             inp_h, inp_w = input_size
@@ -349,10 +324,7 @@ class SimpleTransform3DSMPLCam(object):
             target_weight *= joints_vis.reshape(-1)
             bbox = _center_scale_to_box(center, scale)
 
-            cam_scale, cam_trans, cam_valid, cam_error, new_uvd = self.calc_cam_scale_trans2(
-                                        target_xyz.reshape(-1, 3).copy(), 
-                                        target.reshape(-1, 3).copy(), 
-                                        target_weight.reshape(-1, 3).copy())
+            cam_scale, cam_trans, cam_valid, cam_error, new_uvd = self.calc_cam_scale_trans2(target_xyz.reshape(-1, 3).copy(), target.reshape(-1, 3).copy(), target_weight.reshape(-1, 3).copy())
 
         else:
             bbox = list(label['bbox'])
@@ -370,7 +342,7 @@ class SimpleTransform3DSMPLCam(object):
             beta = label['beta'].copy()
             theta = label['theta'].copy()
 
-            assert not (theta<1e-3).all(), label
+            assert not (theta < 1e-3).all(), label
 
             if 'twist_phi' in label.keys():
                 twist_phi = label['twist_phi'].copy()
@@ -394,8 +366,7 @@ class SimpleTransform3DSMPLCam(object):
                 bbox = addDPG(bbox, imgwidth, imght)
 
             xmin, ymin, xmax, ymax = bbox
-            center, scale = _box_to_center_scale(
-                xmin, ymin, xmax - xmin, ymax - ymin, self._aspect_ratio, scale_mult=self._scale_mult)
+            center, scale = _box_to_center_scale(xmin, ymin, xmax - xmin, ymax - ymin, self._aspect_ratio, scale_mult=self._scale_mult)
 
             xmin, ymin, xmax, ymax = _center_scale_to_box(center, scale)
 
@@ -406,9 +377,7 @@ class SimpleTransform3DSMPLCam(object):
                 #     gt_joints_17[:, :, 0], joints_vis_17
                 # )
                 self.num_joints = 24
-                c_half_body, s_half_body = self.half_body_transform(
-                    gt_joints_29[:, :, 0], joints_vis_29
-                )
+                c_half_body, s_half_body = self.half_body_transform(gt_joints_29[:, :, 0], joints_vis_29)
 
                 if c_half_body is not None and s_half_body is not None:
                     center, scale = c_half_body, s_half_body
@@ -496,7 +465,7 @@ class SimpleTransform3DSMPLCam(object):
             for i in range(29):
                 if joints_29_uvd[i, 0, 1] > 0.0:
                     joints_29_uvd[i, 0:2, 0] = affine_transform(joints_29_uvd[i, 0:2, 0], trans)
-            
+
             target_smpl_weight = torch.ones(1).float()
             # theta_24_weights = np.ones((24, 4))
             # theta_24_weights = theta_24_weights.reshape(24 * 4)
@@ -517,10 +486,7 @@ class SimpleTransform3DSMPLCam(object):
             tmp_uvd_24_weight = target_weight_29.reshape(-1, 3)[:24]
 
             if self.focal_length > 0:
-                cam_scale, cam_trans, cam_valid, cam_error, new_uvd = self.calc_cam_scale_trans2(
-                    target_xyz_24.reshape(-1, 3).copy(),
-                    tmp_uvd_24.copy(),
-                    tmp_uvd_24_weight.copy())
+                cam_scale, cam_trans, cam_valid, cam_error, new_uvd = self.calc_cam_scale_trans2(target_xyz_24.reshape(-1, 3).copy(), tmp_uvd_24.copy(), tmp_uvd_24_weight.copy())
 
                 target_uvd_29 = (target_uvd_29 * target_weight_29).reshape(-1, 3)
             else:
@@ -637,13 +603,7 @@ class SimpleTransform3DSMPLCam(object):
         elif w < self._aspect_ratio * h:
             w = h * self._aspect_ratio
 
-        scale = np.array(
-            [
-                w * 1.0 / self.pixel_std,
-                h * 1.0 / self.pixel_std
-            ],
-            dtype=np.float32
-        )
+        scale = np.array([w * 1.0 / self.pixel_std, h * 1.0 / self.pixel_std], dtype=np.float32)
 
         scale = scale * 1.5
 
@@ -654,11 +614,11 @@ class SimpleTransform3DSMPLCam(object):
         f = self.focal_length
 
         # unit: meter
-        # the equation to be solved: 
+        # the equation to be solved:
         # u * 256 / f * (z + f/256 * 1/scale) = x + tx
         # v * 256 / f * (z + f/256 * 1/scale) = y + ty
 
-        weight = (uvd_weight.sum(axis=-1, keepdims=True) >= 3.0) * 1.0 # 24 x 1
+        weight = (uvd_weight.sum(axis=-1, keepdims=True) >= 3.0) * 1.0  # 24 x 1
         # assert weight.sum() >= 2, 'too few valid keypoints to calculate cam para'
 
         if weight.sum() < 2:
@@ -701,8 +661,8 @@ class SimpleTransform3DSMPLCam(object):
 
         backed_projected_xyz = self.back_projection(uvd_29, target_camera, f)
         backed_projected_xyz[:, 2] = backed_projected_xyz[:, 2] * self.depth_factor2meter
-        diff = np.sum((backed_projected_xyz-xyz_29)**2, axis=-1) * weight[:, 0]
-        diff = np.sqrt(diff).sum() / (weight.sum()+1e-6) * 1000 # roughly mpjpe > 70
+        diff = np.sum((backed_projected_xyz - xyz_29)**2, axis=-1) * weight[:, 0]
+        diff = np.sqrt(diff).sum() / (weight.sum() + 1e-6) * 1000  # roughly mpjpe > 70
         # print(scale, trans, diff)
         if diff < 70:
             new_uvd = self.projection(xyz_29, target_camera, f)
@@ -714,12 +674,12 @@ class SimpleTransform3DSMPLCam(object):
         # xyz: unit: meter, u = f/256 * (x+dx) / (z+dz)
         transl = camera[1:3]
         scale = camera[0]
-        z_cam = xyz[:, 2:] + f / (256.0 * scale) # J x 1
+        z_cam = xyz[:, 2:] + f / (256.0 * scale)  # J x 1
         uvd = np.zeros_like(xyz)
         uvd[:, 2] = xyz[:, 2] / self.bbox_3d_shape[2]
         uvd[:, :2] = f / 256.0 * (xyz[:, :2] + transl) / z_cam
         return uvd
-    
+
     def back_projection(self, uvd, pred_camera, focal_length=5000.):
         camScale = pred_camera[:1].reshape(1, -1)
         camTrans = pred_camera[1:].reshape(1, -1)
@@ -728,7 +688,7 @@ class SimpleTransform3DSMPLCam(object):
 
         pred_xyz = np.zeros_like(uvd)
         pred_xyz[:, 2] = uvd[:, 2].copy()
-        pred_xyz[:, :2] = (uvd[:, :2] * 256 / focal_length) * (pred_xyz[:, 2:]*self.depth_factor2meter + camDepth) - camTrans
+        pred_xyz[:, :2] = (uvd[:, :2] * 256 / focal_length) * (pred_xyz[:, 2:] * self.depth_factor2meter + camDepth) - camTrans
 
         return pred_xyz
 
@@ -742,8 +702,7 @@ def _box_to_center_scale_nosquare(x, y, w, h, aspect_ratio=1.0, scale_mult=1.5):
     center[0] = x + w * 0.5
     center[1] = y + h * 0.5
 
-    scale = np.array(
-        [w * 1.0 / pixel_std, h * 1.0 / pixel_std], dtype=np.float32)
+    scale = np.array([w * 1.0 / pixel_std, h * 1.0 / pixel_std], dtype=np.float32)
     if center[0] != -1:
         scale = scale * scale_mult
     return center, scale
