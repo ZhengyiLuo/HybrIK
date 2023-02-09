@@ -8,13 +8,11 @@ import numpy as np
 import torch
 from easydict import EasyDict as edict
 from torchvision import transforms as T
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from tqdm import tqdm
 
 from hybrik.models import builder
 from hybrik.utils.config import update_config
 from hybrik.utils.presets import SimpleTransform3DSMPLCam
-from hybrik.utils.render_pytorch3d import render_mesh
 from hybrik.utils.vis import get_max_iou_box, get_one_box, vis_2d
 import time
 
