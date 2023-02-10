@@ -21,6 +21,7 @@ import time
 from easydict import EasyDict as edict
 import torch
 
+
 def xyxy2xywh(bbox):
     x1, y1, x2, y2 = bbox
 
@@ -31,7 +32,7 @@ def xyxy2xywh(bbox):
     return [cx, cy, w, h]
 
 
-def main():
+async def main():
     global pose_mat, trans, dt, reset_offset
     offset = 0
     cfg_file = 'configs/256x192_adam_lr1e-3-res34_smpl_3d_cam_2x_mix_w_pw3d_fast.yaml'
@@ -43,18 +44,18 @@ def main():
     dummpy_set = edict({'joint_pairs_17': None, 'joint_pairs_24': None, 'joint_pairs_29': None, 'bbox_3d_shape': bbox_3d_shape})
 
     transformation = SimpleTransform3DSMPLCam(dummpy_set,
-                                            scale_factor=cfg.DATASET.SCALE_FACTOR,
-                                            color_factor=cfg.DATASET.COLOR_FACTOR,
-                                            occlusion=cfg.DATASET.OCCLUSION,
-                                            input_size=cfg.MODEL.IMAGE_SIZE,
-                                            output_size=cfg.MODEL.HEATMAP_SIZE,
-                                            depth_dim=cfg.MODEL.EXTRA.DEPTH_DIM,
-                                            bbox_3d_shape=bbox_3d_shape,
-                                            rot=cfg.DATASET.ROT_FACTOR,
-                                            sigma=cfg.MODEL.EXTRA.SIGMA,
-                                            train=False,
-                                            add_dpg=False,
-                                            loss_type=cfg.LOSS['TYPE'])
+                                              scale_factor=cfg.DATASET.SCALE_FACTOR,
+                                              color_factor=cfg.DATASET.COLOR_FACTOR,
+                                              occlusion=cfg.DATASET.OCCLUSION,
+                                              input_size=cfg.MODEL.IMAGE_SIZE,
+                                              output_size=cfg.MODEL.HEATMAP_SIZE,
+                                              depth_dim=cfg.MODEL.EXTRA.DEPTH_DIM,
+                                              bbox_3d_shape=bbox_3d_shape,
+                                              rot=cfg.DATASET.ROT_FACTOR,
+                                              sigma=cfg.MODEL.EXTRA.SIGMA,
+                                              train=False,
+                                              add_dpg=False,
+                                              loss_type=cfg.LOSS['TYPE'])
 
     det_model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
     det_model.classes = [0]
@@ -79,22 +80,25 @@ def main():
     transform = sRot.from_euler('xyz', np.array([-np.pi / 2, 0, 0]), degrees=False).as_matrix()
 
     def frames_from_webcam():
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(-1)
 
-        while(cap.isOpened()):
+        while (cap.isOpened()):
             # Capture frame-by-frame
             ret, frame = cap.read()
+            cv2.imshow('frame', frame)
+            if cv2.waitKey(1) == ord('q'):
+                break
             yield frame[..., ::-1]
+
     prev_box = None
 
     print('### Run Model...')
     for frame in frames_from_webcam():
         with torch.no_grad():
             # Run Detection
-
             t_s = time.time()
 
-            yolo_output = det_model([frame], size=360)
+            yolo_output = det_model([frame], size=280)
 
             yolo_out_xyxy = torch.stack(yolo_output.xyxy)
             if yolo_out_xyxy.shape[1] > 0:
@@ -116,39 +120,53 @@ def main():
 
                 pose_output = hybrik_model(pose_input, flip_test=False, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
 
-
                 ######## Streaming models
                 pose_mat = pose_output.pred_theta_mats.cpu()
-                trans  = pose_output.transl.cpu().numpy()
-                scale = (bbox[2] - bbox[0])/256
-                
-                trans [:, 2] /= scale
+                trans = pose_output.transl.cpu().numpy()
+                scale = (bbox[2] - bbox[0]) / 256
+
+                trans[:, 2] /= scale
                 if reset_offset:
-                    offset = - 0.89 - trans [0, 1]
+                    offset = -0.89 - trans[0, 1]
                     reset_offset = False
-                trans [:, 1] += offset
+                trans[:, 1] += offset
 
                 # print(trans, trans.dot(sRot.from_euler('xyz', np.array([-np.pi / 2, 0, 0]), degrees=False).as_matrix().T))
                 ######## Streaming models
 
                 dt = time.time() - t_s
                 print(f'\r {1/dt:.2f} fps', end='')
-                
+
             else:
                 print("no human detected~")
 
-    
+
 def frames_from_webcam():
     cap = cv2.VideoCapture(0)
 
-    while(cap.isOpened()):
+    while (cap.isOpened()):
         # Capture frame-by-frame
         ret, frame = cap.read()
         yield frame[..., ::-1]
 
+
+async def pose_getter(request):
+    # query env configurations
+    global pose_mat, trans, dt
+    curr_paths = {}
+
+    json_resp = {
+        "pose_mat": pose_mat.tolist(),
+        "trans": trans.tolist(),
+        "dt": dt,
+    }
+
+    return web.json_response(json_resp)
+
+
 async def websocket_handler(request):
     print('Websocket connection starting')
-    global pose_mat, trans,  dt
+    global pose_mat, trans, dt
     ws_talker = aiohttp.web.WebSocketResponse()
 
     await ws_talker.prepare(request)
@@ -159,12 +177,13 @@ async def websocket_handler(request):
             if msg.data == "get_pose":
                 await ws_talker.send_json({
                     "pose_mat": pose_mat.tolist(),
-                    "trans": trans.tolist(), 
+                    "trans": trans.tolist(),
                     "dt": dt,
                 })
 
     print('Websocket connection closed')
     return ws_talker
+
 
 async def talk_websocket_handler(request):
     print('Websocket connection starting')
@@ -185,18 +204,19 @@ async def talk_websocket_handler(request):
     print('Websocket connection closed')
     return ws_talker
 
+
 def start_pose_estimate():
-    loop = asyncio.new_event_loop()   # <-- create new loop in this thread here
+    loop = asyncio.new_event_loop()  # <-- create new loop in this thread here
     asyncio.set_event_loop(loop)
     loop.run_until_complete(main())
 
 
-pose_mat, trans, dt,  ws_talkers, reset_offset = np.zeros([24, 3, 3]), np.zeros([3]), 1/10,  [], 0
+pose_mat, trans, dt, ws_talkers, reset_offset = np.zeros([24, 3, 3]), np.zeros([3]), 1 / 10, [], 0
 # main()
 app = web.Application(client_max_size=1024**2)
 app.router.add_route('GET', '/ws', websocket_handler)
 app.router.add_route('GET', '/ws_talk', talk_websocket_handler)
+app.router.add_route('GET', '/get_pose', pose_getter)
 threading.Thread(target=start_pose_estimate, daemon=True).start()
 
-web.run_app(app, port=8081)
-
+web.run_app(app, port=8080)
