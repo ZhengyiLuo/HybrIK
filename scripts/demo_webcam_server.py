@@ -79,17 +79,6 @@ async def main():
     global_transform = sRot.from_quat([0.5, 0.5, 0.5, 0.5]).inv().as_matrix()
     transform = sRot.from_euler('xyz', np.array([-np.pi / 2, 0, 0]), degrees=False).as_matrix()
 
-    def frames_from_webcam():
-        cap = cv2.VideoCapture(-1)
-
-        while (cap.isOpened()):
-            # Capture frame-by-frame
-            ret, frame = cap.read()
-            cv2.imshow('frame', frame)
-            if cv2.waitKey(1) == ord('q'):
-                break
-            yield frame[..., ::-1]
-
     prev_box = None
 
     print('### Run Model...')
@@ -139,6 +128,18 @@ async def main():
 
             else:
                 print("no human detected~")
+
+
+# def frames_from_webcam():
+#     cap = cv2.VideoCapture(-1)
+
+#     while (cap.isOpened()):
+#         # Capture frame-by-frame
+#         ret, frame = cap.read()
+#         cv2.imshow('frame', frame)
+#         if cv2.waitKey(1) == ord('q'):
+#             break
+#         yield frame[..., ::-1]
 
 
 def frames_from_webcam():
