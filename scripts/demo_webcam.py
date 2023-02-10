@@ -16,7 +16,6 @@ from hybrik.utils.presets import SimpleTransform3DSMPLCam
 from hybrik.utils.vis import get_max_iou_box, get_one_box, vis_2d
 import time
 
-det_transform = T.Compose([T.ToTensor()])
 
 
 def xyxy2xywh(bbox):
@@ -69,15 +68,25 @@ det_model.eval()
 hybrik_model.eval()
 device = torch.device('cuda')
 
+from scipy.spatial.transform import Rotation as sRot
+global_transform = sRot.from_quat([0.5, 0.5, 0.5, 0.5]).inv().as_matrix()
+transform = sRot.from_euler('xyz', np.array([-np.pi / 2, 0, 0]), degrees=False).as_matrix()
 
 def frames_from_webcam():
     cap = cv2.VideoCapture(0)
-    while (frame_bgr := cap.read()[1]) is not None:
-        yield frame_bgr[..., ::-1]
 
+    while(cap.isOpened()):
+        # Capture frame-by-frame
+        ret, frame = cap.read()
+        yield frame[..., ::-1]
+prev_box = None
 
 print('### Run Model...')
 idx = 0
+poses = {
+    "pose_aa": [],
+    "trans": []
+}
 for frame in frames_from_webcam():
 
     with torch.no_grad():
@@ -88,22 +97,42 @@ for frame in frames_from_webcam():
         yolo_output = det_model([frame], size=360)
 
         yolo_out_xyxy = torch.stack(yolo_output.xyxy)
-        det_output = {"boxes": yolo_out_xyxy[:, 0, :4], "scores": yolo_out_xyxy[:, 0, 4]}
+        if yolo_out_xyxy.shape[1] > 0:
+            det_output = {"boxes": yolo_out_xyxy[:, 0, :4], "scores": yolo_out_xyxy[:, 0, 4]}
 
-        if prev_box is None:
-            tight_bbox = get_one_box(det_output)  # xyxy
-            if tight_bbox is None:
-                continue
+            if prev_box is None:
+                tight_bbox = get_one_box(det_output)  # xyxy
+                if tight_bbox is None:
+                    continue
+            else:
+                tight_bbox = get_max_iou_box(det_output, prev_box)  # xyxy
+
+            prev_box = tight_bbox
+
+            # Run HybrIK
+            # bbox: [x1, y1, x2, y2]
+            pose_input, bbox, img_center = transformation.test_transform(frame, tight_bbox)
+            pose_input = pose_input.to(device)[None, :, :, :]
+
+            pose_output = hybrik_model(pose_input, flip_test=False, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
+
+
+            ######## Streaming models
+            rot_mats = pose_output.pred_theta_mats.cpu()
+            transl = pose_output.transl
+            scale = (bbox[2] - bbox[0])/256
+            transl[:, 2] /= scale
+
+            poses['pose_aa'].append(sRot.from_matrix(rot_mats).as_rotvec())
+            poses['trans'].append(transl.cpu().numpy())
+            if len(poses['pose_aa']) > 500:
+                import ipdb; ipdb.set_trace()
+
+            ######## Streaming models
+
+            dt = time.time() - t_s
+            print(1 / dt)
+
+            
         else:
-            tight_bbox = get_max_iou_box(det_output, prev_box)  # xyxy
-
-        prev_box = tight_bbox
-
-        # Run HybrIK
-        # bbox: [x1, y1, x2, y2]
-        pose_input, bbox, img_center = transformation.test_transform(frame, tight_bbox)
-        pose_input = pose_input.to(device)[None, :, :, :]
-
-        pose_output = hybrik_model(pose_input, flip_test=False, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
-        dt = time.time() - t_s
-        print(1 / dt)
+            print("no human detected~")

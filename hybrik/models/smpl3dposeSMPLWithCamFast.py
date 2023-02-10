@@ -322,6 +322,7 @@ class Simple3DPoseBaseSMPLCamFast(nn.Module):
             pred_phi=pred_phi,
             pred_delta_shape=delta_shape,
             pred_shape=pred_shape,
+            pred_theta_mats=rot_mats,
             pred_uvd_jts=pred_uvd_jts_29.reshape(batch_size, -1),
             pred_xyz_jts_29=pred_xyz_jts_29_flat,
             maxvals=maxvals,
