@@ -22,6 +22,7 @@ def render_mesh(vertices, faces, translation, focal_length, height, width, devic
     bs = vertices.shape[0]
 
     # add the translation
+    
     vertices = vertices + translation[:, None, :]
 
     # upside down the mesh
@@ -31,51 +32,38 @@ def render_mesh(vertices, faces, translation, focal_length, height, width, devic
     faces = faces.expand(bs, *faces.shape).to(device)
 
     vertices = torch.matmul(rot, vertices.transpose(1, 2)).transpose(1, 2)
+    
 
     # Initialize each vertex to be white in color.
     verts_rgb = torch.ones_like(vertices)  # (B, V, 3)
     textures = pytorch3d.renderer.TexturesVertex(verts_features=verts_rgb)
     mesh = pytorch3d.structures.Meshes(verts=vertices, faces=faces, textures=textures)
-
+    
+    
     # Initialize a camera.
     cameras = pytorch3d.renderer.PerspectiveCameras(
         focal_length=((2 * focal_length / min(height, width), 2 * focal_length / min(height, width)),),
         device=device,
     )
+    j3d_ndc = cameras.get_full_projection_transform().transform_points(vertices)
+    j2d = pytorch3d.renderer.cameras.get_ndc_to_screen_transform(cameras,  image_size=(height, width)).transform_points(j3d_ndc)
 
     # Define the settings for rasterization and shading.
     raster_settings = pytorch3d.renderer.RasterizationSettings(
-        image_size=(height, width),   # (H, W)
+        image_size=(height, width),  # (H, W)
         # image_size=height,   # (H, W)
         blur_radius=0.0,
         faces_per_pixel=1,
     )
 
     # Define the material
-    materials = pytorch3d.renderer.Materials(
-        ambient_color=((1, 1, 1),),
-        diffuse_color=((1, 1, 1),),
-        specular_color=((1, 1, 1),),
-        shininess=64,
-        device=device
-    )
+    materials = pytorch3d.renderer.Materials(ambient_color=((1, 1, 1),), diffuse_color=((1, 1, 1),), specular_color=((1, 1, 1),), shininess=64, device=device)
 
     # Place a directional light in front of the object.
     lights = pytorch3d.renderer.DirectionalLights(device=device, direction=((0, 0, -1),))
 
     # Create a phong renderer by composing a rasterizer and a shader.
-    renderer = pytorch3d.renderer.MeshRenderer(
-        rasterizer=pytorch3d.renderer.MeshRasterizer(
-            cameras=cameras,
-            raster_settings=raster_settings
-        ),
-        shader=pytorch3d.renderer.SoftPhongShader(
-            device=device,
-            cameras=cameras,
-            lights=lights,
-            materials=materials
-        )
-    )
+    renderer = pytorch3d.renderer.MeshRenderer(rasterizer=pytorch3d.renderer.MeshRasterizer(cameras=cameras, raster_settings=raster_settings), shader=pytorch3d.renderer.SoftPhongShader(device=device, cameras=cameras, lights=lights, materials=materials))
 
     # Do rendering
     imgs = renderer(mesh)
@@ -114,13 +102,11 @@ def render_mesh_single_frame(vertices, faces, translation, focal_length, height,
     # Initialize each vertex to be white in color.
     verts_rgb = torch.ones_like(vertices)[None]  # (B, V, 3)
     textures = pytorch3d.renderer.TexturesVertex(verts_features=verts_rgb)
-    mesh = pytorch3d.structures.Meshes(
-        verts=[vertices], faces=[faces], textures=textures)
+    mesh = pytorch3d.structures.Meshes(verts=[vertices], faces=[faces], textures=textures)
 
     # Initialize a camera.
     cameras = pytorch3d.renderer.PerspectiveCameras(
-        focal_length=((2 * focal_length / min(height, width),
-                      2 * focal_length / min(height, width)),),
+        focal_length=((2 * focal_length / min(height, width), 2 * focal_length / min(height, width)),),
         device=device,
     )
 
@@ -133,31 +119,13 @@ def render_mesh_single_frame(vertices, faces, translation, focal_length, height,
     )
 
     # Define the material
-    materials = pytorch3d.renderer.Materials(
-        ambient_color=((1, 1, 1),),
-        diffuse_color=((1, 1, 1),),
-        specular_color=((1, 1, 1),),
-        shininess=64,
-        device=device
-    )
+    materials = pytorch3d.renderer.Materials(ambient_color=((1, 1, 1),), diffuse_color=((1, 1, 1),), specular_color=((1, 1, 1),), shininess=64, device=device)
 
     # Place a directional light in front of the object.
-    lights = pytorch3d.renderer.DirectionalLights(
-        device=device, direction=((0, 0, -1),))
+    lights = pytorch3d.renderer.DirectionalLights(device=device, direction=((0, 0, -1),))
 
     # Create a phong renderer by composing a rasterizer and a shader.
-    renderer = pytorch3d.renderer.MeshRenderer(
-        rasterizer=pytorch3d.renderer.MeshRasterizer(
-            cameras=cameras,
-            raster_settings=raster_settings
-        ),
-        shader=pytorch3d.renderer.SoftPhongShader(
-            device=device,
-            cameras=cameras,
-            lights=lights,
-            materials=materials
-        )
-    )
+    renderer = pytorch3d.renderer.MeshRenderer(rasterizer=pytorch3d.renderer.MeshRasterizer(cameras=cameras, raster_settings=raster_settings), shader=pytorch3d.renderer.SoftPhongShader(device=device, cameras=cameras, lights=lights, materials=materials))
 
     # Do rendering
     imgs = renderer(mesh)

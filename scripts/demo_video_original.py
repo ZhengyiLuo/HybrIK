@@ -73,8 +73,6 @@ opt = parser.parse_args()
 
 cfg_file = 'configs/256x192_adam_lr1e-3-hrw48_cam_2x_w_pw3d_3dhp.yaml'
 CKPT = './pretrained_hrnet.pth'
-# cfg_file = 'configs/256x192_adam_lr1e-3-res34_smpl_3d_cam_2x_mix_w_pw3d.yaml'
-# CKPT = './pretrained_w_cam.pth'
 cfg = update_config(cfg_file)
 
 bbox_3d_shape = getattr(cfg.MODEL, 'BBOX_3D_SHAPE', (2000, 2000, 2000))
@@ -87,14 +85,14 @@ res_keys = [
     'pred_xyz_29',
     'pred_xyz_24_struct',
     'pred_scores',
-    # 'pred_camera',
+    'pred_camera',
     # 'f',
     'pred_betas',
-    'pose_mat',
+    'pred_thetas',
     'pred_phi',
     'pred_cam_root',
     # 'features',
-    'trans',
+    'transl',
     'transl_camsys',
     'bbox',
     'height',
@@ -117,9 +115,7 @@ transformation = SimpleTransform3DSMPLCam(dummpy_set,
                                           add_dpg=False,
                                           loss_type=cfg.LOSS['TYPE'])
 
-# det_model = fasterrcnn_resnet50_fpn(pretrained=True)
-det_model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-det_model.classes = [0]
+det_model = fasterrcnn_resnet50_fpn(pretrained=True)
 
 hybrik_model = builder.build_sppe(cfg.MODEL)
 
@@ -151,8 +147,8 @@ if not os.path.exists(os.path.join(opt.out_dir, 'res_2d_images')) and opt.save_i
 _, info, _ = get_video_info(opt.video_name)
 video_basename = os.path.basename(opt.video_name).split('.')[0]
 
-savepath = f'./{opt.out_dir}/res_{video_basename}.mp4'
-savepath2d = f'./{opt.out_dir}/res_2d_{video_basename}.mp4'
+savepath = f'{opt.out_dir}/res_{video_basename}.mp4'
+savepath2d = f'{opt.out_dir}/res_2d_{video_basename}.mp4'
 info['savepath'] = savepath
 info['savepath2d'] = savepath2d
 
@@ -187,7 +183,6 @@ for file in tqdm(files):
 prev_box = None
 renderer = None
 smpl_faces = torch.from_numpy(hybrik_model.smpl.faces.astype(np.int32))
-import time
 
 print('### Run Model...')
 idx = 0
@@ -197,14 +192,9 @@ for img_path in tqdm(img_path_list):
 
     with torch.no_grad():
         # Run Detection
-
         input_image = cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB)
-
         det_input = det_transform(input_image).to(opt.gpu)
-
-        yolo_output = det_model([input_image], size=720)
-        yolo_out_xyxy = torch.stack(yolo_output.xyxy)
-        det_output = {"boxes": yolo_out_xyxy[:, 0, :4], "scores": yolo_out_xyxy[:, 0, 4]}
+        det_output = det_model([det_input])[0]
 
         if prev_box is None:
             tight_bbox = get_one_box(det_output)  # xyxy
@@ -219,9 +209,7 @@ for img_path in tqdm(img_path_list):
         # bbox: [x1, y1, x2, y2]
         pose_input, bbox, img_center = transformation.test_transform(input_image, tight_bbox)
         pose_input = pose_input.to(opt.gpu)[None, :, :, :]
-
-        pose_output = hybrik_model(pose_input, flip_test=False, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
-
+        pose_output = hybrik_model(pose_input, flip_test=True, bboxes=torch.from_numpy(np.array(bbox)).to(pose_input.device).unsqueeze(0).float(), img_center=torch.from_numpy(img_center).to(pose_input.device).unsqueeze(0).float())
         uv_29 = pose_output.pred_uvd_jts.reshape(29, 3)[:, :2]
         transl = pose_output.transl.detach()
 
@@ -238,9 +226,6 @@ for img_path in tqdm(img_path_list):
 
         verts_batch = vertices
         transl_batch = transl
-        
-        
-        
         color_batch = render_mesh(vertices=verts_batch, faces=smpl_faces, translation=transl_batch, focal_length=focal, height=image.shape[0], width=image.shape[1])
 
         valid_mask_batch = (color_batch[:, :, :, [-1]] > 0)
@@ -255,8 +240,9 @@ for img_path in tqdm(img_path_list):
 
         image_vis = image_vis.astype(np.uint8)
         image_vis = cv2.cvtColor(image_vis, cv2.COLOR_RGB2BGR)
-        idx += 1
+
         if opt.save_img:
+            idx += 1
             res_path = os.path.join(opt.out_dir, 'res_images', f'image-{idx:06d}.jpg')
             cv2.imwrite(res_path, image_vis)
         write_stream.write(image_vis)
@@ -266,7 +252,6 @@ for img_path in tqdm(img_path_list):
         pts[:, 0] = pts[:, 0] + bbox_xywh[0]
         pts[:, 1] = pts[:, 1] + bbox_xywh[1]
         image = input_image.copy()
-
         bbox_img = vis_2d(image, tight_bbox, pts)
         bbox_img = cv2.cvtColor(bbox_img, cv2.COLOR_RGB2BGR)
         write2d_stream.write(bbox_img)
@@ -283,7 +268,7 @@ for img_path in tqdm(img_path_list):
             pred_xyz_jts_29 = pose_output.pred_xyz_jts_29.reshape(-1, 3).cpu().data.numpy()
             pred_xyz_jts_24_struct = pose_output.pred_xyz_jts_24_struct.reshape(24, 3).cpu().data.numpy()
             pred_scores = pose_output.maxvals.cpu().data[:, :29].reshape(29).numpy()
-            # pred_camera = pose_output.pred_camera.squeeze(dim=0).cpu().data.numpy()
+            pred_camera = pose_output.pred_camera.squeeze(dim=0).cpu().data.numpy()
             pred_betas = pose_output.pred_shape.squeeze(dim=0).cpu().data.numpy()
             pred_theta = pose_output.pred_theta_mats.squeeze(dim=0).cpu().data.numpy()
             pred_phi = pose_output.pred_phi.squeeze(dim=0).cpu().data.numpy()
@@ -295,21 +280,20 @@ for img_path in tqdm(img_path_list):
             res_db['pred_xyz_29'].append(pred_xyz_jts_29)
             res_db['pred_xyz_24_struct'].append(pred_xyz_jts_24_struct)
             res_db['pred_scores'].append(pred_scores)
-            # res_db['pred_camera'].append(pred_camera)
+            res_db['pred_camera'].append(pred_camera)
             # res_db['f'].append(1000.0)
             res_db['pred_betas'].append(pred_betas)
-            res_db['pose_mat'].append(pred_theta)
+            res_db['pred_thetas'].append(pred_theta)
             res_db['pred_phi'].append(pred_phi)
             res_db['pred_cam_root'].append(pred_cam_root)
             # res_db['features'].append(img_feat)
-            res_db['trans'].append(transl[0].cpu().data.numpy())
+            res_db['transl'].append(transl[0].cpu().data.numpy())
             res_db['transl_camsys'].append(transl_camsys[0].cpu().data.numpy())
             res_db['bbox'].append(np.array(bbox))
             res_db['height'].append(img_size[0])
             res_db['width'].append(img_size[1])
             res_db['img_path'].append(img_path)
 
-            
 if opt.save_pk:
     n_frames = len(res_db['img_path'])
     for k in res_db.keys():

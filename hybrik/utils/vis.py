@@ -59,7 +59,7 @@ def calc_iou(bbox1, bbox2):
 
     box1Area = (bbox1[2] - bbox1[0] + 1) * (bbox1[3] - bbox1[1] + 1)
     box2Area = (bbox2[2] - bbox2[0] + 1) * (bbox2[3] - bbox2[1] + 1)
-    
+
     iou = interArea / float(box1Area + box2Area - interArea)
 
     return iou
@@ -89,8 +89,7 @@ def vis_2d(image, bbox, pts):
     return np.asarray(image)
 
 
-def vis_smpl_3d(pose_output, img, cam_root, f, c, renderer, color_id=0, cam_rt=np.zeros(3),
-                cam_t=np.zeros(3), J_regressor_h36m=None):
+def vis_smpl_3d(pose_output, img, cam_root, f, c, renderer, color_id=0, cam_rt=np.zeros(3), cam_t=np.zeros(3), J_regressor_h36m=None):
     '''
     input theta_mats: np.ndarray (96, )
     input betas: np.ndarray (10, )
@@ -111,8 +110,7 @@ def vis_smpl_3d(pose_output, img, cam_root, f, c, renderer, color_id=0, cam_rt=n
     vert_shifted = vert_shifted
 
     # Render results
-    rend_img_overlay = renderer(
-        vert_shifted, princpt=c, img=img, do_alpha=True, color_id=color_id, cam_rt=cam_rt, cam_t=cam_t)
+    rend_img_overlay = renderer(vert_shifted, princpt=c, img=img, do_alpha=True, color_id=color_id, cam_rt=cam_rt, cam_t=cam_t)
 
     img = pil_img.fromarray(rend_img_overlay[:, :, :3].astype(np.uint8))
     # if len(filename) > 0:

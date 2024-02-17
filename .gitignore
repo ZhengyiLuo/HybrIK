@@ -29,6 +29,9 @@ MANIFEST
 *.pkl
 res/
 res_dance/
+res_dance_1/
+examples/
+res_zen/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

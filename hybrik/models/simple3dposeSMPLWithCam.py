@@ -268,7 +268,7 @@ class Simple3DPoseBaseSMPLCam(nn.Module):
             flip_sigma = self.flip_sigma(flip_sigma)
             sigma = (sigma + flip_sigma) / 2
 
-        camScale = pred_camera[:, :1].unsqueeze(1)
+        camScale = pred_camera[:, :1].unsqueeze(1)  # predicted camera scale.
         camTrans = pred_camera[:, 1:].unsqueeze(1)
 
         camDepth = self.focal_length / (self.input_size * camScale + 1e-9)
@@ -291,13 +291,15 @@ class Simple3DPoseBaseSMPLCam(nn.Module):
             bbox_center = torch.stack((cx, cy), dim=1).unsqueeze(dim=1)
 
             pred_xyz_jts_29[:, :, 2:] = pred_uvd_jts_29[:, :, 2:].clone()  # unit: (self.depth_factor m)
-            pred_xy_jts_29_meter = ((pred_uvd_jts_29[:, :, :2] + bbox_center) * self.input_size / self.focal_length) \
-                * (pred_xyz_jts_29[:, :, 2:] * self.depth_factor + camDepth)  # unit: m
+
+            # un perspective projeciton
+            pred_xy_jts_29_meter = ((pred_uvd_jts_29[:, :, :2] + bbox_center) * self.input_size / self.focal_length) * (pred_xyz_jts_29[:, :, 2:] * self.depth_factor + camDepth)  # unit: m
 
             pred_xyz_jts_29[:, :, :2] = pred_xy_jts_29_meter / self.depth_factor  # unit: (self.depth_factor m)
 
-            camera_root = pred_xyz_jts_29[:, 0, :] * self.depth_factor
+            camera_root = pred_xyz_jts_29[:, 0, :] * self.depth_factor  # depth factor is the 3D heatmap depth factor.
             camera_root[:, 2] += camDepth[:, 0, 0]
+
         else:
             pred_xyz_jts_29[:, :, 2:] = pred_uvd_jts_29[:, :, 2:].clone()  # unit: (self.depth_factor m)
             pred_xyz_jts_29_meter = (pred_uvd_jts_29[:, :, :2] * self.input_size / self.focal_length) * (pred_xyz_jts_29[:, :, 2:] * self.depth_factor + camDepth) - camTrans  # unit: m
@@ -329,6 +331,41 @@ class Simple3DPoseBaseSMPLCam(nn.Module):
         pred_xyz_jts_17_flat = pred_xyz_jts_17.reshape(batch_size, 17 * 3)
 
         transl = camera_root - output.joints.float().reshape(-1, 24, 3)[:, 0, :]
+
+        ############################## Geo Trans ##############################
+        # print("using geo_trans")
+        # scale = 1 / (self.focal_length / self.input_size)
+        # j3d = output.joints.float().reshape(-1, 24, 3).clone()
+        # j3d[..., 2] += transl[..., 2]
+        # j3d_proj = j3d / (j3d[..., 2:3] * scale)
+
+        # j2d = pred_uvd_jts_29[:, :24]
+        # j2d = j2d - j2d[:, 0]
+
+        # A = scale * j2d[..., :2].flatten()[:, None]
+        # B = (j3d[..., :2].flatten() - scale * j2d[..., :2].flatten() * j3d[..., 2:3].flatten().repeat_interleave(2, dim=-1))[:, None]
+
+        # U, sigma, vt = torch.linalg.svd(A)
+        # Sigma_pinv = torch.zeros_like(A).T
+        # Sigma_pinv[:1, :1] = torch.diag(1 / sigma)
+        # delta_t = vt.T.matmul(Sigma_pinv).matmul(U.T).matmul(B)
+        # transl[..., 2] = transl[..., 2] + delta_t
+
+        ########################################################################
+        # print((j3d_proj[..., :2] - j2d[..., :2]).norm(dim=-1).sum())
+        # j3d_new = output.joints.float().reshape(-1, 24, 3).clone()
+        # j3d_new[..., 2] = j3d_new[..., 2] + transl[..., 2] + delta_t
+        # j3d_proj_new = j3d_new / (j3d_new[..., 2:3] * scale)
+        # print((j3d_proj_new[..., :2] - j2d[..., :2]).norm(dim=-1).sum())
+        # print(f"Using geo_trans{delta_t}")
+        # if delta_t > 0.1:
+        #     import ipdb
+        #     ipdb.set_trace()
+        #     import joblib; joblib.dump({"j2d": j2d, "j3d": j3d, "j3d_new": j3d_new}, "hybrik_2d.pkl")
+
+        # import joblib; joblib.dump({})
+
+        ############################## Geo Trans ##############################
 
         output = edict(
             pred_phi=pred_phi,

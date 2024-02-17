@@ -32,6 +32,7 @@ def norm_heatmap(norm_type, heatmap):
 
 @SPPE.register_module
 class Simple3DPoseBaseSMPLCamReg(nn.Module):
+
     def __init__(self, norm_layer=nn.BatchNorm2d, **kwargs):
         super(Simple3DPoseBaseSMPLCamReg, self).__init__()
         self.deconv_dim = kwargs['NUM_DECONV_FILTERS']
@@ -65,38 +66,26 @@ class Simple3DPoseBaseSMPLCamReg(nn.Module):
         else:
             raise NotImplementedError
         model_state = self.preact.state_dict()
-        state = {k: v for k, v in x.state_dict().items()
-                 if k in self.preact.state_dict() and v.size() == self.preact.state_dict()[k].size()}
+        state = {k: v for k, v in x.state_dict().items() if k in self.preact.state_dict() and v.size() == self.preact.state_dict()[k].size()}
         model_state.update(state)
         self.preact.load_state_dict(model_state)
 
         h36m_jregressor = np.load('./model_files/J_regressor_h36m.npy')
-        self.smpl = SMPL_layer(
-            './model_files/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
-            h36m_jregressor=h36m_jregressor,
-            dtype=self.smpl_dtype
-        )
+        self.smpl = SMPL_layer('./model_files/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl', h36m_jregressor=h36m_jregressor, dtype=self.smpl_dtype)
 
-        self.joint_pairs_24 = ((1, 2), (4, 5), (7, 8),
-                               (10, 11), (13, 14), (16, 17), (18, 19), (20, 21), (22, 23))
+        self.joint_pairs_24 = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20, 21), (22, 23))
 
-        self.joint_pairs_29 = ((1, 2), (4, 5), (7, 8),
-                               (10, 11), (13, 14), (16, 17), (18, 19), (20, 21),
-                               (22, 23), (25, 26), (27, 28))
+        self.joint_pairs_29 = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20, 21), (22, 23), (25, 26), (27, 28))
 
         self.leaf_pairs = ((0, 1), (3, 4))
         self.root_idx_smpl = 0
 
         # mean shape
         init_shape = np.load('./model_files/h36m_mean_beta.npy')
-        self.register_buffer(
-            'init_shape',
-            torch.Tensor(init_shape).float())
+        self.register_buffer('init_shape', torch.Tensor(init_shape).float())
 
         init_cam = torch.tensor([0.9, 0, 0])
-        self.register_buffer(
-            'init_cam',
-            torch.Tensor(init_cam).float())
+        self.register_buffer('init_cam', torch.Tensor(init_cam).float())
 
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         # self.fc1 = nn.Linear(self.feature_channel, 1024)
@@ -155,7 +144,7 @@ class Simple3DPoseBaseSMPLCamReg(nn.Module):
 
         x0 = self.avg_pool(x0)
         x0 = x0.view(x0.size(0), -1)
-        init_shape = self.init_shape.expand(batch_size, -1)     # (B, 10,)
+        init_shape = self.init_shape.expand(batch_size, -1)  # (B, 10,)
         init_cam = self.init_cam.expand(batch_size, -1)  # (B, 1,)
 
         delta_shape = self.decshape(x0)
@@ -165,7 +154,8 @@ class Simple3DPoseBaseSMPLCamReg(nn.Module):
 
         pred_phi = pred_phi.reshape(batch_size, 23, 2)
 
-        out_coord = self.fc_coord(x0)
+        out_coord = self.fc_coord(x0)  # ZL: 2D coordinate regression
+
         out_sigma = self.decsigma(x0).sigmoid()
 
         if flip_test:
@@ -206,7 +196,7 @@ class Simple3DPoseBaseSMPLCamReg(nn.Module):
 
         camDepth = self.focal_length / (self.input_size * camScale + 1e-9)
 
-        pred_xyz_jts_29 = torch.zeros_like(pred_uvd_jts_29)
+        pred_xyz_jts_29 = torch.zeros_like(pred_uvd_jts_29)  # ZL: 3D coordinate regression output.
         if 'bboxes' in kwargs.keys():
             bboxes = kwargs['bboxes']
             img_center = kwargs['img_center']
@@ -249,8 +239,7 @@ class Simple3DPoseBaseSMPLCamReg(nn.Module):
             betas=pred_shape.type(self.smpl_dtype),
             phis=pred_phi.type(self.smpl_dtype),
             global_orient=None,
-            return_verts=True
-        )
+            return_verts=True)
         pred_vertices = output.vertices.float()
         #  -0.5 ~ 0.5
         pred_xyz_jts_24_struct = output.joints.float() / self.depth_factor
@@ -288,11 +277,6 @@ class Simple3DPoseBaseSMPLCamReg(nn.Module):
 
     def forward_gt_theta(self, gt_theta, gt_beta):
 
-        output = self.smpl(
-            pose_axis_angle=gt_theta,
-            betas=gt_beta,
-            global_orient=None,
-            return_verts=True
-        )
+        output = self.smpl(pose_axis_angle=gt_theta, betas=gt_beta, global_orient=None, return_verts=True)
 
         return output

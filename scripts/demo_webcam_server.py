@@ -85,6 +85,7 @@ async def main():
     for frame in frames_from_webcam():
         with torch.no_grad():
             # Run Detection
+            print("race condigion!!!!!!")
             t_s = time.time()
 
             yolo_output = det_model([frame], size=280)
@@ -218,6 +219,6 @@ app = web.Application(client_max_size=1024**2)
 app.router.add_route('GET', '/ws', websocket_handler)
 app.router.add_route('GET', '/ws_talk', talk_websocket_handler)
 app.router.add_route('GET', '/get_pose', pose_getter)
-threading.Thread(target=start_pose_estimate, daemon=True).start()
+# threading.Thread(target=start_pose_estimate, daemon=True).start()
 
 web.run_app(app, port=8080)
